@@ -73,6 +73,7 @@ steps:
   displayName: Install GMT
 
 - bash: |
+    ping -c 10 msu.edu
     ping -c 10 soest.hawaii.edu
     ping -c 10 gmtserver.soest.hawaii.edu
     ping -c 10 oceania.generic-mapping-tools.org
