@@ -72,12 +72,10 @@ steps:
     cmake --build . --target install
   displayName: Install GMT
 
-- bash: |
-    ping -c 10 google.com
-    ping -c 10 soest.hawaii.edu
-    ping -c 10 gmtserver.soest.hawaii.edu
-    ping -c 10 oceania.generic-mapping-tools.org
-  displayName: Debug GMT server
+- bash: ping -c 10 google.com
+- bash: ping -c 10 soest.hawaii.edu
+- bash: ping -c 10 gmtserver.soest.hawaii.edu
+- bash: ping -c 10 oceania.generic-mapping-tools.org
 
 - bash: |
     set -x -e
