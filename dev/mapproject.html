@@ -359,14 +359,15 @@ See <a class="reference internal" href="#output-order">Output Order</a> for how 
 <dd>Do the Inverse transformation, i.e., get (longitude,latitude) from (x,y) data.</dd>
 </dl>
 <dl class="docutils" id="l">
-<dt><strong>-L</strong><em>line.xy</em>[<strong>+u</strong><em>unit</em>][<strong>+p</strong>]</dt>
+<dt><strong>-L</strong><em>line.xy</em>[<strong>+u</strong><em>unit</em> |<em>c</em>  |<em>C</em>][<strong>+p</strong>]</dt>
 <dd>Determine the shortest distance from the input data points to the
 line(s) given in the ASCII multisegment file <em>line.xy</em>. The distance
 and the coordinates of the nearest point will be appended to the
 output as three new columns. Append the distance unit via <strong>+u</strong> (see <a class="reference internal" href="#units">Units</a>
 for available units and how distances are computed [great circle using authalic radius]),
 including <strong>c</strong> (Cartesian distance using input coordinates) or
-<strong>C</strong> (Cartesian distance using projected coordinates). The <strong>C</strong>
+<strong>C</strong> (Cartesian distance using projected coordinates). Note that these <strong>c</strong> and <strong>C</strong> are
+not listed in  <a class="reference internal" href="#units">Units</a> and would be used for example as <strong>+uc</strong>. The <strong>C</strong>
 unit requires <strong>-R</strong> and <strong>-J</strong> to be set. Finally, append <strong>+p</strong> to
 report the line segment id and the fractional point number instead
 of lon/lat of the nearest point.
@@ -699,7 +700,7 @@ North-Holland Publ., ISBN: 0 444 86149 1.</p>
         
         &copy; Copyright 2020, The GMT Team.
       <span class="lastupdated">
-        Last updated on Mar 31, 2020.
+        Last updated on Apr 09, 2020.
       </span>
 
     </p>

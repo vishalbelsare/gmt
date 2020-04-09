@@ -282,7 +282,8 @@ then we read from standard input.  </dd>
 </dl>
 <dl class="docutils" id="a">
 <dt><strong>-A</strong>[<strong>m</strong>|<strong>p</strong>|<strong>x</strong>|<strong>y</strong>]</dt>
-<dd>By default, geographic line segments are drawn as great circle arcs. To draw them as
+<dd>By default, geographic line segments are drawn as great circle arcs by resampling
+coarse input data along such arcs. To disable this sampling and draw them as
 straight lines, use the <strong>-A</strong> flag.  Alternatively, add <strong>m</strong> to draw
 the line by first following a meridian, then a parallel. Or append <strong>p</strong>
 to start following a parallel, then a meridian. (This can be practical
@@ -475,10 +476,12 @@ For degenerate ellipses (circles) with just the diameter given, use <strong>-SE-
 The diameter is excepted to be given in column 3.  Alternatively, append
 the desired diameter to <strong>-SE-</strong> and this fixed diameter is used instead.
 For allowable geographical units, see <a class="reference internal" href="#units">Units</a> [Default is k for km].</dd>
-<dt><strong>-Sf</strong><em>gap</em>[/<em>size</em>][<strong>+l</strong>|<strong>+r</strong>][<strong>+b+c+f+s+t</strong>][<strong>+o</strong><em>offset</em>][<strong>+p</strong>[<em>pen</em>]].</dt>
+<dt><strong>-Sf</strong>[±]<em>gap</em>[/<em>size</em>][<strong>+l</strong>|<strong>+r</strong>][<strong>+b+c+f+s+t</strong>][<strong>+o</strong><em>offset</em>][<strong>+p</strong>[<em>pen</em>]].</dt>
 <dd>Draw a <strong>f</strong>ront. Supply distance <em>gap</em> between symbols and symbol <em>size</em>. If <em>gap</em> is
 negative, it is interpreted to mean the number of symbols along the
-front instead. If <em>size</em> is missing it is set to 30% of the <em>gap</em>, except
+front instead. If <em>gap</em> has a leading + then we use the value exactly as given
+[Default will start and end each line with a symbol, hence the <em>gap</em> is adjusted to fit].
+If <em>size</em> is missing it is set to 30% of the <em>gap</em>, except
 when <em>gap</em> is negative and <em>size</em> is thus required.  Append <strong>+l</strong> or
 <strong>+r</strong> to plot symbols on the left or
 right side of the front [Default is centered]. Append <strong>+</strong><em>type</em> to
@@ -491,9 +494,9 @@ heads. Append <strong>+o</strong><em>offset</em> to offset the first symbol from
 beginning of the front by that amount [0]. The chosen symbol is drawn
 with the same pen as set for the line (i.e., via <strong>-W</strong>). To use an
 alternate pen, append <strong>+p</strong><em>pen</em>. To skip the outline, just use
-<strong>+p</strong>.  <strong>Note</strong>: By placing <strong>-Sf</strong>
-options in the segment header you can change the front types on a
-segment-by-segment basis.</dd>
+<strong>+p</strong>.  To make the main front line invisible, add <strong>+i</strong>.  <strong>Note</strong>:
+By placing <strong>-Sf</strong> options in the segment header you can change the front
+types on a segment-by-segment basis.</dd>
 <dt><strong>-Sg</strong></dt>
 <dd>octa<strong>g</strong>on. <em>size</em> is diameter of circumscribing circle.</dd>
 <dt><strong>-Sh</strong></dt>
@@ -550,6 +553,7 @@ in columns 3-5. See <a class="reference internal" href="#vector-attributes">Vect
 The required argument controls the placement of labels along the quoted
 lines. Choose among six controlling algorithms:</p>
 <blockquote>
+<div><blockquote>
 <div><dl class="docutils">
 <dt><strong>d</strong><em>dist</em>[<strong>c</strong>|<strong>i</strong>|<strong>p</strong>] or <strong>D</strong><em>dist</em>[<strong>d</strong>|<strong>e</strong>|<strong>f</strong>|<strong>k</strong>|<strong>m</strong>|<strong>M</strong>|<strong>n</strong>|<strong>s</strong>]</dt>
 <dd>For lower case <strong>d</strong>, give distances between labels on the plot in
@@ -618,6 +622,13 @@ size changed to 9p].</dd>
 <dt><strong>+g</strong>[<em>color</em>]</dt>
 <dd>Selects opaque text boxes [Default is transparent]; optionally
 specify the color [Default is <a class="reference internal" href="gmt.conf.html#term-ps-page-color"><span class="xref std std-term">PS_PAGE_COLOR</span></a>].</dd>
+</dl>
+</div></blockquote>
+<dl class="docutils">
+<dt><strong>+i</strong></dt>
+<dd><blockquote class="first">
+<div>Make the main quoted line invisible [Draw it per <strong>-W</strong>].</div></blockquote>
+<dl class="last docutils">
 <dt><strong>+j</strong><em>just</em></dt>
 <dd>Sets label justification [Default is MC]. Ignored when
 <strong>-SqN</strong>|<strong>n</strong>+|-1 is used.</dd>
@@ -690,6 +701,8 @@ append two text strings separated by comma
 <dd>Prepends <em>prefix</em> to all line labels. If <em>prefix</em> starts with a
 leading hyphen (-) then there will be no space between label
 value and the prefix. [Default is no prefix].</dd>
+</dl>
+</dd>
 </dl>
 </div></blockquote>
 <p class="last"><strong>Note</strong>: By placing <strong>-Sq</strong> options in the segment header you can change
@@ -818,6 +831,8 @@ the following control arguments:</p>
 the workings of the decorated line setup.</dd>
 <dt><strong>+g</strong>[<em>fill</em>]</dt>
 <dd>Sets the symbol fill [no fill].</dd>
+<dt><strong>+i</strong></dt>
+<dd>Make the main decorated line invisible [Draw it using pen settings provided by <strong>-W</strong>].</dd>
 <dt><strong>+n</strong><em>dx</em>[/<em>dy</em>]</dt>
 <dd>Nudges the placement of symbols by the specified amount (append
 <strong>c</strong>|<strong>i</strong>|<strong>p</strong> to specify the units). Increments
@@ -828,14 +843,16 @@ plot x/y coordinates system [no nudging].</dd>
 <dd>Draws the outline of symbols [Default is no outline];
 optionally specify pen for outline [Default is width = 0.25p,
 color = black, style = solid].</dd>
-<dt><strong>+s</strong>&lt;symbol&gt;&lt;size&gt;</dt>
-<dd>Specifies the code and size of the decorative symbol.</dd>
+<dt><strong>+s</strong>&lt;symbol&gt;&lt;size&gt; or <strong>+sk</strong><em>customsymbol</em>/<em>size</em></dt>
+<dd>Specifies the code and size of the decorative symbol.
+Custom symbols need to be simple, i.e., not require data columns.</dd>
 <dt><strong>+w</strong></dt>
 <dd>Specifies how many (<em>x</em>,<em>y</em>) points will be used to estimate
 symbol angles [Default is 10].</dd>
 </dl>
 </div></blockquote>
-<p class="last"><strong>Note</strong>: By placing <strong>-S~</strong> options in the segment header you can change
+<p class="last">If neither <strong>+g</strong> nor <strong>+p</strong> are set we select the default pen outline (<a class="reference internal" href="gmt.conf.html#term-map-default-pen"><span class="xref std std-term">MAP_DEFAULT_PEN</span></a>).
+<strong>Note</strong>: By placing <strong>-S~</strong> options in the segment header you can change
 the decorated lines on a segment-by-segment basis.</p>
 </dd>
 </dl>
@@ -1225,7 +1242,7 @@ to supply a legend size (i.e., length of a line symbol) via the <strong>+s</stro
         
         &copy; Copyright 2020, The GMT Team.
       <span class="lastupdated">
-        Last updated on Mar 31, 2020.
+        Last updated on Apr 09, 2020.
       </span>
 
     </p>

@@ -220,7 +220,7 @@ different thresholds.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="ch">#!/usr/bin/env bash</span>
 <span class="c1">#               GMT EXAMPLE 40</span>
 <span class="c1">#</span>
-<span class="c1"># Purpose:      Illustrate line simplification and area calculations</span>
+<span class="c1"># Purpose:      Illustrate line simplification and spherical area calculations</span>
 <span class="c1"># GMT modules:  basemap, text, plot, gmtsimplify, gmtspatial, subplot</span>
 <span class="c1"># Unix progs:   awk, rm</span>
 <span class="c1">#</span>
@@ -230,7 +230,7 @@ different thresholds.</p>
 
 gmt begin ex40
 	gmt spatial @GSHHS_h_Australia.txt -fg -Qk &gt; centroid.txt
-	gmt spatial @GSHHS_h_Australia.txt -fg -Qk <span class="p">|</span> <span class="nv">$AWK</span> <span class="s1">&#39;{printf &quot;Full area = %.0f km@+2@+\n&quot;, $3}&#39;</span> &gt; area.txt
+	<span class="nv">$AWK</span> <span class="s1">&#39;{printf &quot;Full area = %.0f km@+2@+\n&quot;, $3}&#39;</span> centroid.txt &gt; area.txt
 
 	gmt subplot begin 2x1 -Fs14c/12c -R112/154/-40/-10 -JM14c
 		gmt subplot <span class="nb">set</span> <span class="m">0</span>
@@ -242,7 +242,7 @@ gmt begin ex40
 		gmt plot -W1p,blue T100k.txt
 		gmt plot -Sx0.75c -W3p centroid.txt
 		gmt text -Dj8p -F+cLT+jTL+f18p+t<span class="s2">&quot;T = 100 km&quot;</span>
-		gmt text area.txt -F+f14p+cCM
+		gmt text area.txt -F+f14p+cCM -D0/1c
 		gmt text area_T100k.txt -F+f14p+cLB -Dj14p
 
 		gmt subplot <span class="nb">set</span> <span class="m">1</span>
@@ -254,7 +254,7 @@ gmt begin ex40
 		gmt plot -W1p,blue T500k.txt
 		gmt plot -Sx0.75c -W3p centroid.txt
 		gmt text -Dj8p -F+cLT+jTL+f18p+t<span class="s2">&quot;T = 500 km&quot;</span>
-		gmt text area.txt -F+f14p+cCM
+		gmt text area.txt -F+f14p+cCM -D0/1c
 		gmt text area_T500k.txt -F+f14p+cLB -Dj14p
 	gmt subplot end
 	rm -f centroid.txt area*.txt T*.txt
@@ -290,7 +290,7 @@ gmt end show
         
         &copy; Copyright 2020, The GMT Team.
       <span class="lastupdated">
-        Last updated on Mar 31, 2020.
+        Last updated on Apr 09, 2020.
       </span>
 
     </p>

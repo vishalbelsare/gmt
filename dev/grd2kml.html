@@ -217,6 +217,7 @@
 <div class="section" id="synopsis">
 <h2>Synopsis<a class="headerlink" href="#synopsis" title="Permalink to this headline">¶</a></h2>
 <p><strong>gmt grd2kml</strong> <em>grid</em>
+[ <a class="reference internal" href="#a"><span> <strong>-A</strong></span></a></strong><em>LOD</em> ]
 [ <a class="reference internal" href="#c"><span> <strong>-C</strong></span></a></strong><em>cpt</em> ]
 [ <a class="reference internal" href="#e"><span> <strong>-E</strong></span></a></strong><em>URL</em> ]
 [ <a class="reference internal" href="#f"><span> <strong>-F</strong></span></a></strong><em>filtercode</em> ]
@@ -253,6 +254,11 @@ clipped. Map colors are specified via a color palette lookup table. Contour over
 </div>
 <div class="section" id="optional-arguments">
 <h2>Optional Arguments<a class="headerlink" href="#optional-arguments" title="Permalink to this headline">¶</a></h2>
+<dl class="docutils" id="a">
+<dt><strong>-A</strong><em>LOD</em></dt>
+<dd>Sets <a class="reference external" href="https://developers.google.com/kml/documentation/kmlreference#minlodpixels">minLodPixels</a>
+for the final, high-resolution PNG views [128].</dd>
+</dl>
 <dl class="docutils" id="c">
 <dt><strong>-C</strong>[<em>cpt</em>|<em>master</em>[<strong>+h</strong>[<em>hinge</em>]][<strong>+i</strong><em>zinc</em>][<strong>+u</strong>|<strong>U</strong><em>unit</em>] |<em>color1,color2</em>[,<em>color3</em>,…]]</dt>
 <dd>Name of the CPT. Alternatively, supply the name of a GMT color master
@@ -304,7 +310,9 @@ specific intensity scenario then run <a class="reference internal" href="grdgrad
 <dl class="docutils" id="l">
 <dt><strong>-L</strong><em>tilesize</em></dt>
 <dd>Sets the fixed size of the image building blocks.  Must be an integer that
-is radix 2.  Typical values are 256 or 512 [256].</dd>
+is radix 2.  Typical values are 256 or 512 [256].  <strong>Note</strong>: For global
+grids (here meaning 360-degree longitude range), we will compute an optimal
+<em>tilesize</em> if <strong>-L</strong> is not specified.</dd>
 </dl>
 <dl class="docutils" id="n">
 <dt><strong>-N</strong><em>prefix</em></dt>
@@ -351,14 +359,17 @@ The examples that use remote files (file names starting with <code class="docuti
 can be cut and pasted into your terminal for testing.
 Other commands requiring input files are just dummy examples of the types
 of uses that are common but cannot be run verbatim as written.</p>
-<p>To make a quadtree image representation of the large topography grid file ellice_basin.nc, using
-the default tile size, supply automatic shading based on the topography, and use the larger 512x512 tiles,
-supplying a suitable title, and using color masking for unmapped area, try</p>
-<blockquote>
-<div><div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gmt grd2kml ellice_basin.nc -I+d -Nellice -L512 -Q -T<span class="s2">&quot;Ellice Basin Bathymetry&quot;</span>
+<p>To test a quadtree image representation of the coarse topography grid earth_relief06m, using
+the optimally determined tile size, auto color, and supplying a suitable title, try:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gmt grd2kml @earth_relief_06m -NEarth6m -T<span class="s2">&quot;Earth Relief 6x6 arc minutes&quot;</span> -Cearth
 </pre></div>
 </div>
-</div></blockquote>
+<p>To make a quadtree image representation of the large topography grid file ellice_basin.nc,
+supplying automatic shading based on the topography, and using 512x512 tiles,
+supplying a suitable title, and using color masking for unmapped area, try:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gmt grd2kml ellice_basin.nc -I+d -Nellice -L512 -Q -T<span class="s2">&quot;Ellice Basin Bathymetry&quot;</span>
+</pre></div>
+</div>
 </div>
 <div class="section" id="see-also">
 <h2>See Also<a class="headerlink" href="#see-also" title="Permalink to this headline">¶</a></h2>
@@ -397,7 +408,7 @@ supplying a suitable title, and using color masking for unmapped area, try</p>
         
         &copy; Copyright 2020, The GMT Team.
       <span class="lastupdated">
-        Last updated on Mar 31, 2020.
+        Last updated on Apr 09, 2020.
       </span>
 
     </p>

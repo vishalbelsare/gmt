@@ -640,10 +640,11 @@ Technical Reference and Cookbook. If false, no filename expansion is done [false
 <dt id="term-io-header"><strong>IO_HEADER</strong></dt>
 <dd>(<strong>-h</strong>) Specifies whether input/output ASCII files have header record(s) or not [false].</dd>
 <dt id="term-io-header-marker"><strong>IO_HEADER_MARKER</strong></dt>
-<dd>This holds the character we expect to indicate a header record in
-an incoming ASCII data or text table [#]. If this marker should be
-different for output then append another character for the output
-header record marker. The two characters must be separated by a comma.</dd>
+<dd>Give a string from which any character will indicate a header record in
+an incoming ASCII data table if found in the first position [#%!;”’]. If another marker
+should be used for output than the first character in the list, then append a single
+character for the output header record marker. The two sets must be separated by a comma.
+<strong>Note</strong>: A maximum of 7 input markers can be specified.</dd>
 <dt id="term-io-lonlat-toggle"><strong>IO_LONLAT_TOGGLE</strong></dt>
 <dd>(<strong>-:</strong>) Set if the first two columns of input and output files
 contain (latitude,longitude) or (y,x) rather than the expected
@@ -1390,7 +1391,7 @@ correspond to 1800 through 1828. [1950].</dd>
         
         &copy; Copyright 2020, The GMT Team.
       <span class="lastupdated">
-        Last updated on Mar 31, 2020.
+        Last updated on Apr 09, 2020.
       </span>
 
     </p>
