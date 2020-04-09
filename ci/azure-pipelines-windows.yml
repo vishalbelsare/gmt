@@ -148,7 +148,6 @@ steps:
 # Run the full tests
 - bash: |
     set -x -e
-    cd build
     # disable MinGW's path conversion, see #1035.
     export MSYS_NO_PATHCONV=1
     # run all jobs, and rerun failed jobs
