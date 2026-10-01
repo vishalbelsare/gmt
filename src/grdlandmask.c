@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -26,6 +26,7 @@
  */
 
 #include "gmt_dev.h"
+#include "longopt/grdlandmask_inc.h"
 
 #define THIS_MODULE_CLASSIC_NAME	"grdlandmask"
 #define THIS_MODULE_MODERN_NAME	"grdlandmask"
@@ -121,7 +122,7 @@ static int usage (struct GMTAPI_CTRL *API, int level) {
 	GMT_Message (API, GMT_TIME_NONE, "\n  OPTIONAL ARGUMENTS:\n");
 	gmt_GSHHG_syntax (API->GMT, 'A');
 	gmt_GSHHG_resolution_syntax (API->GMT, 'D', "Alternatively, choose (a)uto to automatically select the best "
-		"resolution given the chosen region.");
+		"resolution given the chosen region [Default in modern mode].");
 	GMT_Usage (API, 1, "\n-E[<bordervalues>]");
 	GMT_Usage (API, -2, "Indicate that nodes exactly on a polygon boundary are outside [inside]. Optionally append "
 		"<border> or <cborder>/<lborder>/<iborder>/<pborder>. We will then trace lines through the grid and reset the "
@@ -152,7 +153,7 @@ static int parse (struct GMT_CTRL *GMT, struct GRDLANDMASK_CTRL *Ctrl, struct GM
 	for (opt = options; opt; opt = opt->next) {
 		switch (opt->option) {
 
-			case '<':	/* Input files */
+			case '<':	/* Input files not expected, will give error below */
 				n_files++;
 				break;
 
@@ -160,18 +161,15 @@ static int parse (struct GMT_CTRL *GMT, struct GRDLANDMASK_CTRL *Ctrl, struct GM
 
 			case 'A':	/* Restrict GSHHS features */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->A.active);
-				Ctrl->A.active = true;
 				n_errors += gmt_set_levels (GMT, opt->arg, &Ctrl->A.info);
 				break;
 			case 'D':	/* Set GSHHS resolution */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->D.active);
-				Ctrl->D.active = true;
-				Ctrl->D.set = opt->arg[0];
+				n_errors += gmt_get_required_char (GMT, opt->arg, opt->option, 0, &Ctrl->D.set);
 				Ctrl->D.force = (opt->arg[1] == '+' && (opt->arg[2] == 'f' || opt->arg[2] == '\0'));
 				break;
 			case 'E':	/* On-boundary setting */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->E.active);
-				Ctrl->E.active = true;
 				if (opt->arg[0]) {	/* Trace lines through grid */
 					Ctrl->E.linetrace = true;
 					j = pos = 0;
@@ -191,21 +189,18 @@ static int parse (struct GMT_CTRL *GMT, struct GRDLANDMASK_CTRL *Ctrl, struct GM
 				break;
 			case 'G':	/* Output filename */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->G.active);
-				Ctrl->G.active = true;
-				if (opt->arg[0]) Ctrl->G.file = strdup (opt->arg);
-				if (GMT_Get_FilePath (API, GMT_IS_GRID, GMT_OUT, GMT_FILE_LOCAL, &(Ctrl->G.file))) n_errors++;
+				n_errors += gmt_get_required_file (GMT, opt->arg, opt->option, 0, GMT_IS_GRID, GMT_OUT, GMT_FILE_LOCAL, &(Ctrl->G.file));
 				break;
 			case 'I':	/* Grid spacings */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->I.active);
-				Ctrl->I.active = true;
 				n_errors += gmt_parse_inc_option (GMT, 'I', opt->arg);
 				break;
 			case 'N':	/* Mask values */
-				Ctrl->N.active = true;
+				n_errors += gmt_M_repeated_module_option (API, Ctrl->N.active);
 				strncpy (line, opt->arg,  GMT_LEN256);
 				if (line[strlen(line)-1] == 'o' && gmt_M_compat_check (GMT, 4)) { /* Edge is considered outside */
 					GMT_Report (API, GMT_MSG_COMPAT, "Option -N...o is deprecated; use -E instead\n");
-					Ctrl->E.active = true;
+					n_errors += gmt_M_repeated_module_option (API, Ctrl->E.active);
 					Ctrl->E.inside = GMT_INSIDE;
 					line[strlen(line)-1] = 0;
 				}
@@ -221,7 +216,7 @@ static int parse (struct GMT_CTRL *GMT, struct GRDLANDMASK_CTRL *Ctrl, struct GM
 				Ctrl->N.wetdry = (j == 2);
 				break;
 			default:	/* Report bad options */
-				n_errors += gmt_default_error (GMT, opt->option);
+				n_errors += gmt_default_option_error (GMT, opt);
 				break;
 		}
 	}
@@ -263,7 +258,9 @@ GMT_LOCAL void grdlandmask_assign_node (struct GMT_CTRL *GMT, struct GMT_GRID *G
 EXTERN_MSC int GMT_grdlandmask (void *V_API, int mode, void *args) {
 	bool temp_shift = false, wrap, used_polygons, double_dip;
 	unsigned int base = 3, k, bin, np, side, np_new;
-	int row, row_min, row_max, ii, col, col_min, col_max, i, direction, err, ind, nx1, ny1, error = 0;
+	int row, row_min, row_max, col, col_min, col_max, nx1, ny1;
+	int ii, i, direction, err, ind, error = 0;
+	openmp_int rowu, colu;
 
 	int64_t ij;
 	uint64_t count[GRDLANDMASK_N_CLASSES];
@@ -299,7 +296,7 @@ EXTERN_MSC int GMT_grdlandmask (void *V_API, int mode, void *args) {
 
 	/* Parse the command-line arguments */
 
-	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, NULL, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
+	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, module_kw, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
     if (GMT_Parse_Common (API, THIS_MODULE_OPTIONS, options)) Return (API->error);
 	Ctrl = New_Ctrl (GMT);	/* Allocate and initialize a new control structure */
 	if ((error = parse (GMT, Ctrl, options)) != 0) Return (error);
@@ -384,7 +381,7 @@ EXTERN_MSC int GMT_grdlandmask (void *V_API, int mode, void *args) {
 	if (Ctrl->E.linetrace)
 		X = gmt_M_memory (GMT, X, nx_alloc, struct GRDLANDMASK_BINCROSS);
 
-	nx1 = Grid->header->n_columns - 1;	ny1 = Grid->header->n_rows - 1;
+	nx1 = (int)Grid->header->n_columns - 1;	ny1 = (int)Grid->header->n_rows - 1;
 
 	/* Fill out gridnode coordinates and apply the implicit linear projection */
 
@@ -442,12 +439,24 @@ EXTERN_MSC int GMT_grdlandmask (void *V_API, int mode, void *args) {
 					if (p[k].lat[i] < ymin) ymin = p[k].lat[i];
 					if (p[k].lat[i] > ymax) ymax = p[k].lat[i];
 				}
-				col_min = MAX (0, irint (ceil (xmin * i_dx_inch - Grid->header->xy_off - GMT_CONV8_LIMIT)));
-				if (col_min > nx1) col_min = 0;
-				/* So col_min is in range [0,nx1] */
-				col_max = MIN (nx1, irint (floor (xmax * i_dx_inch - Grid->header->xy_off + GMT_CONV8_LIMIT)));
-				if (col_max <= 0 || col_max < col_min) col_max = nx1;
-				/* So col_max is in range [1,nx1] */
+				col_min = irint (ceil (xmin * i_dx_inch - Grid->header->xy_off - GMT_CONV8_LIMIT));
+				col_max = irint (floor (xmax * i_dx_inch - Grid->header->xy_off + GMT_CONV8_LIMIT));
+				if (wrap) {	/* Keep the wrap-around treatment of a global grid */
+					if (col_min < 0 || col_min > nx1) col_min = 0;
+					/* So col_min is in range [0,nx1] */
+					if (col_max > nx1) col_max = nx1;
+					if (col_max <= 0 || col_max < col_min) col_max = nx1;
+					/* So col_max is in range [1,nx1] */
+				}
+				/* For a non-global grid the same fallbacks would turn a round-off miss just outside the grid into
+				 * the full grid width, so the winding test then ran over unrelated columns and made a mess of the
+				 * mask [issue #8235].  Clip a genuine overlap instead, and skip a polygon that has none. */
+				else if (col_min > nx1 || col_max < 0 || col_max < col_min)
+					continue;
+				else {
+					if (col_min < 0) col_min = 0;
+					if (col_max > nx1) col_max = nx1;
+				}
 				row_min = MAX (0, irint (ceil ((GMT->current.proj.rect[YHI] - ymax) * i_dy_inch - Grid->header->xy_off - GMT_CONV8_LIMIT)));
 				/* So row_min is in range [0,?] */
 				row_max = MIN (ny1, irint (floor ((GMT->current.proj.rect[YHI] - ymin) * i_dy_inch - Grid->header->xy_off + GMT_CONV8_LIMIT)));
@@ -512,8 +521,8 @@ EXTERN_MSC int GMT_grdlandmask (void *V_API, int mode, void *args) {
 						}
 
 						if (ij != last_ij) {	/* Crossed into another cell */
-							start_col = MIN (last_col, col) + 1;
-							end_col = MAX (last_col, col);
+							start_col = MIN (last_col, (int)col) + 1;
+							end_col = MAX (last_col, (int)col);
 							dx = p[k].lon[pt] - p[k].lon[pt-1];
 
 							/* Find all the bin-line intersections - modified from x2sys_binlist */
@@ -530,7 +539,7 @@ EXTERN_MSC int GMT_grdlandmask (void *V_API, int mode, void *args) {
 
 							/* Now add all crossings between this line segment and the gridlines outlining the cells centered on the nodes */
 
-							for (brow = MIN (last_row, row) + 1; brow <= MAX (last_row, row); brow++) {	/* If we go in here we know dy is non-zero */
+							for (brow = MIN (last_row, (int)row) + 1; brow <= MAX (last_row, (int)row); brow++) {	/* If we go in here we know dy is non-zero */
 								if (brow < 0 || brow > (int)C->n_rows) continue;	/* Outside grid */
 								/* Determine intersections between the line segment and parallels */
 								yb = gmt_M_grd_row_to_y (GMT, brow, C) + 0.5 * inc_inch[GMT_Y];
@@ -604,17 +613,18 @@ EXTERN_MSC int GMT_grdlandmask (void *V_API, int mode, void *args) {
 			if (wrap) {	/* Handle jumps */
 				col_min = irint (ceil (fmod (c.lon_sw - Grid->header->wesn[XLO], 360.0) * HH->r_inc[GMT_X] - Grid->header->xy_off));
 				col_max = irint (floor (fmod (c.lon_sw + c.bsize - Grid->header->wesn[XLO], 360.0) * HH->r_inc[GMT_X] - Grid->header->xy_off));
-				if (col_max < col_min) col_max += Grid->header->n_columns;
+				if (col_max < col_min) col_max += (int)Grid->header->n_columns;
 			}
 			else {	/* Make sure we are inside our grid */
+				/* lon_w and lon_e are the bin's edges measured east from the grid's west edge, so they must be
+				 * wrapped against 360, not compared to the absolute wesn limits: doing the latter shifted a bin
+				 * lying east of the west edge into negative offsets, so col_max came out below col_min and the
+				 * bin painted nothing at all [issue #8235] */
 				double lon_w, lon_e;
-				lon_w = c.lon_sw - Grid->header->wesn[XLO];	lon_e = c.lon_sw + c.bsize - Grid->header->wesn[XLO];
-				if (lon_w < Grid->header->wesn[XLO] && (lon_w+360.0) < Grid->header->wesn[XHI]) {
-					lon_w += 360.0;	lon_e += 360.0;
-				}
-				else if (lon_e > Grid->header->wesn[XHI] && (lon_e-360.0) > Grid->header->wesn[XLO]) {
-					lon_w -= 360.0;	lon_e -= 360.0;
-				}
+				lon_w = c.lon_sw - Grid->header->wesn[XLO];	lon_e = lon_w + c.bsize;
+				while (lon_w < 0.0) { lon_w += 360.0;	lon_e += 360.0; }
+				while (lon_w >= 360.0) { lon_w -= 360.0;	lon_e -= 360.0; }
+				if (lon_e > 360.0) { lon_w -= 360.0;	lon_e -= 360.0; }	/* Bin straddles the seam; use its western part */
 				col_min = irint (ceil (lon_w * HH->r_inc[GMT_X] - Grid->header->xy_off));
 				col_max = irint (floor (lon_e * HH->r_inc[GMT_X] - Grid->header->xy_off));
 				if (col_min < 0) col_min = 0;
@@ -645,19 +655,18 @@ EXTERN_MSC int GMT_grdlandmask (void *V_API, int mode, void *args) {
 	}
 
 #ifdef _OPENMP
-#pragma omp parallel for private(row,col,k,ij) shared(GMT,Grid,Ctrl)
+#pragma omp parallel for private(rowu,colu,k,ij) shared(GMT,Grid,Ctrl)
 #endif
 
-	gmt_M_grd_loop (GMT, Grid, row, col, ij) {	/* Turn levels into mask values */
+	gmt_M_grd_loop (GMT, Grid, rowu, colu, ij) {	/* Turn levels into mask values */
 		k = urint (Grid->data[ij]);
 		Grid->data[ij] = Ctrl->N.mask[k];
 		count[k]++;
-		if (col == 0 && double_dip) count[k]++;	/* Count these guys twice */
+		if (colu == 0 && double_dip) count[k]++;	/* Count these guys twice */
 	}
 
 	if (double_dip) { /* Copy over values to the repeating right column */
-		unsigned int row_l;
-		for (row_l = 0, ij = gmt_M_ijp (Grid->header, row_l, 0); row_l < Grid->header->n_rows; row_l++, ij += Grid->header->mx) Grid->data[ij+nx1] = Grid->data[ij];
+		for (rowu = 0, ij = gmt_M_ijp (Grid->header, rowu, 0); rowu < (openmp_int)Grid->header->n_rows; rowu++, ij += Grid->header->mx) Grid->data[ij+nx1] = Grid->data[ij];
 	}
 
 	if (temp_shift) {

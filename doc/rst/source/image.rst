@@ -57,8 +57,6 @@ Required Arguments
     This must be an Encapsulated PostScript (EPS) file or a raster
     image. An EPS file must contain an appropriate BoundingBox. A raster
     file can have a depth of 1, 8, 24, or 32 bits and is read via GDAL.
-    **Note**: If GDAL was not configured during GMT installation then only
-    EPS files are supported.
 
 Optional Arguments
 ------------------
@@ -70,7 +68,7 @@ Optional Arguments
 
 .. _-D:
 
-**-D**\ [**g**\|\ **j**\|\ **J**\|\ **n**\|\ **x**]\ *refpoint*\ **+r**\ *dpi*\ **+w**\ [**-**]\ *width*\ [/*height*]\ [**+j**\ *justify*]\ [**+n**\ *nx*\ [/*ny*] ]\ [**+o**\ *dx*\ [/*dy*]]
+**-D**\ [**g**\|\ **j**\|\ **J**\|\ **n**\|\ **x**]\ *refpoint*\ **+r**\ *dpi*\ [**c**]\ **+w**\ [**-**]\ *width*\ [/*height*]\ [**+j**\ *justify*]\ [**+n**\ *nx*\ [/*ny*] ]\ [**+o**\ *dx*\ [/*dy*]]
     Sets reference point on the map for the image using one of four coordinate systems:
 
     .. include:: explain_refpoint.rst_
@@ -80,15 +78,17 @@ Optional Arguments
     **Note**: If **-Dj** is used then *justify* defaults to the same as *refpoint*,
     if **-DJ** is used then *justify* defaults to the mirror opposite of *refpoint*.
     Specify image size in one of two ways:
-    Use **+r**\ *dpi* to set the dpi of the image in dots per inch, or use
-    **+w**\ [**-**]\ *width*\ [/*height*] to
-    set the width (and height) of the image in plot coordinates
-    (inches, cm, etc.). If *height* is not given, the original aspect
-    ratio of the image is maintained. If *width* is negative we use the
-    absolute value and interpolate image to the device resolution using
-    the PostScript image operator. Optionally, use **+n**\ *nx*\ [/*ny*] to
-    replicate the image *nx* times horizontally and *ny* times
-    vertically. If *ny* is omitted, it will be identical to *nx* [Default is 1/1].
+
+    - **+n** - Append \ *nx*\ [/*ny*] to replicate the (scaled) image *nx* times horizontally and
+      *ny* times vertically. If *ny* is omitted, it will be identical to *nx* [Default is 1/1].
+    - **+r** - Specify *dpi* to set the dpi of the image in dots per inch, or append **c**
+      to indicate this is dots per cm [inches].
+    - **+w** - Append [**-**]\ *width*\ [/*height*] to set the width (and height) of the
+      image in plot coordinates (inches, cm, etc.). If *height* (or *width*) is set to 0,
+      then the original aspect ratio of the image is maintained. If *width* (or *height*)
+      is negative we use the absolute value and interpolate image to the device resolution
+      using the PostScript image operator. If neither dimensions nor *dpi* are set then we
+      revert to the default dpi [:term:`GMT_GRAPHICS_DPU`].
 
 .. _-F:
 
@@ -105,10 +105,15 @@ Optional Arguments
 
 **-G**\ [*color*][**+b**\|\ **f**\|\ **t**]
     Change certain pixel values to another color or make them transparent.
-    For 1-bit images you can specify an alternate *color* for the background (**+b**)
-    or the foreground (**+f**) pixels, or give no color to make those pixels
-    transparent.  Alternatively, for color images you can select a single *color*
-    that should be made transparent instead  (**+t**).
+
+    - **+b** - For 1-bit images you can specify an alternate *color* for the background pixels.
+      Give no color to make those pixels transparent.
+    - **+f** - For 1-bit images you can specify an alternate *color* for the foreground pixels.
+      Give no color to make those pixels transparent.
+    - **+t** - For color images you can select a single *color* that should be made transparent
+      instead.
+
+    This option may be repeated with different settings.
 
 .. _-I:
 
@@ -151,7 +156,7 @@ Optional Arguments
     :start-after: **Syntax**
     :end-before: **Description**
 
-.. |Add_perspective| replace:: (Requires **-R** and **-J** for proper functioning).
+.. |Add_perspective| replace:: (Requires |-R| and |-J| for proper functioning).
 .. include:: explain_perspective.rst_
 
 .. include:: explain_-t.rst_
@@ -161,7 +166,7 @@ Optional Arguments
 Notes
 -----
 
-The **-G** and **-I** options are for raster images only. They have
+The |-G| and |-I| options are for raster images only. They have
 no effect when placing Encapsulated *PostScript* files.
 
 .. module_common_ends

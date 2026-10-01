@@ -1,51 +1,87 @@
-# This workflow checks the links in plaintext files in the repository
+# Check links in plaintext files in the repository
+#
+# This workflow runs the lychee tool to check all links in plaintext files. It will
+# create an issue if broken links are found.
+#
+# It is scheduled to run weekly at 12 noon every Sunday.
+#
 name: Check Links
 
 on:
   # Uncomment the 'pull_request' line below to trigger the workflow in PR
   # pull_request:
+  workflow_dispatch:
   # Schedule runs on 12 noon every Sunday
   schedule:
     - cron: '0 12 * * 0'
+
+permissions:
+  issues: write
 
 jobs:
   check_links:
     name: Check Links
     runs-on: ubuntu-latest
+    if: github.repository == 'GenericMappingTools/gmt'
 
     steps:
     - name: Checkout the repository
-      uses: actions/checkout@v2.3.4
+      uses: actions/checkout@v6.0.2
 
     - name: Link Checker
-      uses: lycheeverse/lychee-action@v1.2.0
+      id: lychee
+      uses: lycheeverse/lychee-action@v2.8.0
       with:
+        fail: false  # Don't fail action on broken links
+        output: /tmp/lychee-out.md
+        # 200: OK
         # 429: Too many requests
         args: >
-          --accept 429
-          --exclude "^ftp://"
-          --exclude "^https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$"
-          --exclude "^https://download1.rpmfusion.org/free/el/rpmfusion-free-release-$"
-          --exclude "^http://maps.google.com/mapfiles/kml/$"
-          --exclude "^http://aa.usno.navy.mil/faq/docs/lawyers.php$"
-          --exclude "^uhttp://my.server.com/images$"
-          --exclude "^-W@weight.png$"
-          --exclude "^http://topex.ucsd.edu/marine_grav/mar_grav.html"
-          --exclude "^https://topex.ucsd.edu/sandwell/"
-          --exclude "^http://topex.ucsd.edu"
-          --verbose
-          "**/*.rst"
-          "**/*.rst_"
-          "**/*.md"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          --accept 200,429
+          --exclude ^ftp://
+          --exclude ^http://aa.usno.navy.mil/faq/docs/lawyers.php$
+          --exclude ^http://maps.google.com/mapfiles/kml/$
+          --exclude ^http://nsis.sourceforge.io
+          --exclude ^http://topex.ucsd.edu
+          --exclude ^http://topex.ucsd.edu/marine_grav/mar_grav.html
+          --exclude ^http://www.eumetsat.int
+          --exclude ^https://doi.org
+          --exclude ^https://download1.rpmfusion.org/free/el/rpmfusion-free-release-$
+          --exclude ^https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$
+          --exclude ^https://linux.die.net/man/3/printf
+          --exclude ^https://topex.ucsd.edu/sandwell/
+          --exclude ^https://www.ethnologue.com
+          --exclude ^https://www.researchgate.net/
+          --exclude ^https://www.softpedia.com/get/Tweak/Registry-Tweak/EditPath.shtml
+          --exclude ^http://my.server.com/images$
+          **/*.rst
+          **/*.rst_
+          **/*.md
+
+    - name: Remove duplicate links from the report
+      if: steps.lychee.outputs.exit_code != 0
+      run: |
+        # The same link is often referenced from many files, so lychee lists it
+        # once per file. Keep the "Summary" table, then list each broken/timed-out
+        # link only once, stripping the "(at file:line)" part so duplicates collapse.
+        {
+          awk '/^## /{exit} {print}' /tmp/lychee-out.md
+          echo
+          echo "## Broken/timed-out links"
+          echo
+          grep '^\* \[' /tmp/lychee-out.md | sed -E 's/ \(at [^)]*\)//' | sort -u
+        } > /tmp/lychee-dedup.md
+        mv /tmp/lychee-dedup.md /tmp/lychee-out.md
 
     - name: Get current date
       id: date
-      run: echo "::set-output name=date::$(date +'%Y-%m-%d')"
+      run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
 
     - name: Create Issue From File
-      uses: peter-evans/create-issue-from-file@v3
-      with:
-        title: Link Checker Report on ${{ steps.date.outputs.date }}
-        content-filepath: ./lychee/out.md
+      if: github.event_name != 'workflow_dispatch' && steps.lychee.outputs.exit_code != 0
+      run: |
+        title="Link Checker Report on ${CURRENT_DATE}"
+        gh issue create --title "$title" --body-file /tmp/lychee-out.md
+      env:
+        GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+        CURRENT_DATE: ${{ steps.date.outputs.date }}

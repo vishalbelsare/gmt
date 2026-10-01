@@ -15,7 +15,7 @@ gmt begin ex33
 	REM Plot ridge segment and end points
 	gmt plot -Rspac_33.nc -W2p,blue ridge.txt
 	gmt plot -Sc0.25c -Gblue ridge.txt
-	REM Generate cross-profiles 400 km long, spaced 10 km, samped every 2km
+	REM Generate cross-profiles 400 km long, spaced 10 km, sampled every 2km
 	REM and stack these using the median, write stacked profile
 	gmt grdtrack ridge.txt -Gspac_33.nc -C400k/2k/10k+v -Sm+sstack.txt > table.txt
 	gmt plot -W0.5p table.txt
@@ -24,7 +24,7 @@ gmt begin ex33
 	gmt convert stack.txt -o0,6 -I -T >> env.txt
 	gmt plot -R-200/200/-3500/-2000 -JX6i/3i -Glightgray env.txt -Yh+3c
 	gmt plot -W3p stack.txt -Bxafg1000+l"Distance from ridge (km)" -Byaf+l"Depth (m)" -BWSne
-	echo 0 -2000 MEDIAN STACKED PROFILE | gmt text -Gwhite -F+jTC+f14p -Dj8p
+	echo MEDIAN STACKED PROFILE | gmt text -Gwhite -F+cTC+f14p -Dj8p
 	REM cleanup
 	del ridge.txt table.txt env.txt stack.txt
 gmt end show

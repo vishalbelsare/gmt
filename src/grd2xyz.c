@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -24,6 +24,7 @@
  */
 
 #include "gmt_dev.h"
+#include "longopt/grd2xyz_inc.h"
 
 #define THIS_MODULE_CLASSIC_NAME	"grd2xyz"
 #define THIS_MODULE_MODERN_NAME	"grd2xyz"
@@ -41,15 +42,21 @@ enum grd2xyz_mode {
 };
 
 struct GRD2XYZ_CTRL {
-	struct GRD2XYZ_C {	/* -C[f|i] */
+	struct GRD2XYZ_C {	/* -C<cpt> or -C<color1>,<color2>[,<color3>,...][+i<dz>] */
 		bool active;
-		unsigned int mode;
+		double dz;	/* Rounding for min/max determined from data */
+		char *file;
+		char *savecpt;	/* For when we want to save the automatically generated CPT */
 	} C;
 	struct GRD2XYZ_E {	/* -E[f][<nodata>] */
 		bool active;
 		bool floating;
 		double nodata;
 	} E;
+	struct GRD2XYZ_F {	/* -F[f|i] */
+		bool active;
+		unsigned int mode;
+	} F;
 	struct GRD2XYZ_L {	/* -Lc|r|x|y<value> */
 		bool active;
 		unsigned int mode;
@@ -89,15 +96,17 @@ static void *New_Ctrl (struct GMT_CTRL *GMT) {	/* Allocate and initialize a new 
 
 static void Free_Ctrl (struct GMT_CTRL *GMT, struct GRD2XYZ_CTRL *C) {	/* Deallocate control structure */
 	if (!C) return;
+	gmt_M_str_free (C->C.file);
+	gmt_M_str_free (C->C.savecpt);
 	gmt_M_free (GMT, C);
 }
 
 static int usage (struct GMTAPI_CTRL *API, int level) {
 	const char *name = gmt_show_name_and_purpose (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_PURPOSE);
 	if (level == GMT_MODULE_PURPOSE) return (GMT_NOERROR);
-	GMT_Usage (API, 0, "usage: %s %s [-C[f|i]] [-Lc|r|x|y<value>] [%s] [-T[a|b][<base>]] [%s] [-W[a[+u<unit>]|<weight>]] "
+	GMT_Usage (API, 0, "usage: %s %s  [-C%s] [-F[f|i]] [-Lc|r|x|y<value>] [%s] [-T[a|b][<base>]] [%s] [-W[a[+u<unit>]|<weight>]] "
 		"[-Z[<flags>]] [%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s]\n",
-		name, GMT_INGRID, GMT_Rgeo_OPT, GMT_V_OPT, GMT_bo_OPT, GMT_d_OPT, GMT_f_OPT, GMT_ho_OPT,
+		name, GMT_INGRID, CPT_OPT_ARGS, GMT_Rgeo_OPT, GMT_V_OPT, GMT_bo_OPT, GMT_d_OPT, GMT_f_OPT, GMT_ho_OPT,
 		GMT_o_OPT, GMT_qo_OPT, GMT_s_OPT, GMT_colon_OPT, GMT_PAR_OPT);
 
 	if (level == GMT_SYNOPSIS) return (GMT_MODULE_SYNOPSIS);
@@ -105,7 +114,8 @@ static int usage (struct GMTAPI_CTRL *API, int level) {
 	GMT_Message (API, GMT_TIME_NONE, "  REQUIRED ARGUMENTS:\n");
 	gmt_ingrid_syntax (API, 0, "Name of one or more grid files");
 	GMT_Message (API, GMT_TIME_NONE, "\n  OPTIONAL ARGUMENTS:\n");
-	GMT_Usage (API, 1, "\n-C[f|i]");
+	gmt_explain_cpt_input (API, 'C');
+	GMT_Usage (API, 1, "\n-F[f|i]");
 	GMT_Usage (API, -2, "Write row,col instead of x,y. Append f to start at 1, else 0 [Default]. "
 		"Use -Ci to write grid index instead of (x,y).");
 	GMT_Usage (API, 1, "\n-Lc|r|x|y<value>");
@@ -160,6 +170,7 @@ static int parse (struct GMT_CTRL *GMT, struct GRD2XYZ_CTRL *Ctrl, struct GMT_Z_
 	 */
 
 	unsigned int n_errors = 0, n_files = 0, k = 0;
+	char *f = NULL;
 	struct GMT_OPTION *opt = NULL;
 	struct GMTAPI_CTRL *API = GMT->parent;
 
@@ -174,27 +185,35 @@ static int parse (struct GMT_CTRL *GMT, struct GRD2XYZ_CTRL *Ctrl, struct GMT_Z_
 
 			/* Processes program-specific parameters */
 
-			case 'C':	/* Write row,col or index instead of x,y */
+			case 'C':	/* CPT */
+				if (opt->arg[0] && strchr ("if", opt->arg[0])) goto the_F;	/* Backwars compatibility for -Ci|f */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->C.active);
-				Ctrl->C.active = true;
-				if (opt->arg[0] == 'c') Ctrl->C.mode = 0;
-				else if (opt->arg[0] == 'f') Ctrl->C.mode = 1;
-				else if (opt->arg[0] == 'i') Ctrl->C.mode = 2;
+				gmt_M_str_free (Ctrl->C.file);
+				if (opt->arg[0]) Ctrl->C.file = strdup (opt->arg);
+				if (opt->arg[0] && (f = gmt_strrstr (Ctrl->C.file, "+s")) != NULL) {	/* Filename has a +s<outname>, extract that part */
+					Ctrl->C.savecpt = &f[2];
+					f[0] = '\0';		/* Remove the +s<outname> from Ctrl->C.file */
+				}
+				gmt_cpt_interval_modifier (GMT, &(Ctrl->C.file), &(Ctrl->C.dz));
+				break;
+the_F:		case 'F':	/* Write row,col or index instead of x,y */
+				n_errors += gmt_M_repeated_module_option (API, Ctrl->F.active);
+				if (opt->arg[0] == 'c') Ctrl->F.mode = 0;
+				else if (opt->arg[0] == 'f') Ctrl->F.mode = 1;
+				else if (opt->arg[0] == 'i') Ctrl->F.mode = 2;
 				break;
 			case 'E':	/* Old ESRI option */
-				n_errors += gmt_M_repeated_module_option (API, Ctrl->E.active);
 				if (gmt_M_compat_check (GMT, 4)) {
-					Ctrl->E.active = true;
+					n_errors += gmt_M_repeated_module_option (API, Ctrl->E.active);
 					GMT_Report (API, GMT_MSG_COMPAT, "Option -E is deprecated; use grdconvert instead.\n");
 					if (opt->arg[0] == 'f') Ctrl->E.floating = true;
 					if (opt->arg[Ctrl->E.floating]) Ctrl->E.nodata = atof (&opt->arg[Ctrl->E.floating]);
 				}
 				else
-					n_errors += gmt_default_error (GMT, opt->option);
+					n_errors += gmt_default_option_error (GMT, opt);
 				break;
 			case 'L':	/* Select single row or column for output */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->L.active);
-				Ctrl->L.active = true;
 				switch (opt->arg[0]) {
 					case 'c':	Ctrl->L.mode = GRD2XYZ_COL;	Ctrl->L.item = atoi (&opt->arg[1]);	break;
 					case 'r':	Ctrl->L.mode = GRD2XYZ_ROW;	Ctrl->L.item = atoi (&opt->arg[1]);	break;
@@ -224,7 +243,7 @@ static int parse (struct GMT_CTRL *GMT, struct GRD2XYZ_CTRL *Ctrl, struct GMT_Z_
 					GMT->common.s.active = true;
 				}
 				else
-					n_errors += gmt_default_error (GMT, opt->option);
+					n_errors += gmt_default_option_error (GMT, opt);
 				break;
 			case 'N':	/* Nan-value */
 				if (gmt_M_compat_check (GMT, 4)) {	/* Honor old -N[i]<value> option */
@@ -244,11 +263,10 @@ static int parse (struct GMT_CTRL *GMT, struct GRD2XYZ_CTRL *Ctrl, struct GMT_Z_
 					}
 				}
 				else
-					n_errors += gmt_default_error (GMT, opt->option);
+					n_errors += gmt_default_option_error (GMT, opt);
 				break;
 			case 'T':	/* Triangulation STL */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->T.active);
-				Ctrl->T.active = true;
 				switch (opt->arg[0]) {
 					case 'b': Ctrl->T.binary = true;	k = 1;	break;
 					case 'a':
@@ -265,7 +283,6 @@ static int parse (struct GMT_CTRL *GMT, struct GRD2XYZ_CTRL *Ctrl, struct GMT_Z_
 				break;
 			case 'W':	/* Add weight on output */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->W.active);
-				Ctrl->W.active = true;
 				if (opt->arg[0] == 'a') {
 					char *c = NULL;
 					Ctrl->W.area = true;
@@ -278,12 +295,11 @@ static int parse (struct GMT_CTRL *GMT, struct GRD2XYZ_CTRL *Ctrl, struct GMT_Z_
 				break;
 			case 'Z':	/* Control format */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->Z.active);
-				Ctrl->Z.active = true;
 				n_errors += gmt_parse_z_io (GMT, opt->arg, &Ctrl->Z);
 					break;
 
 			default:	/* Report bad options */
-				n_errors += gmt_default_error (GMT, opt->option);
+				n_errors += gmt_default_option_error (GMT, opt);
 				break;
 		}
 	}
@@ -417,21 +433,24 @@ void place_base_triangles (struct GMT_CTRL *GMT, FILE *fp, struct GMT_GRID *G, b
 #define Return(code) {Free_Ctrl (GMT, Ctrl); gmt_end_module (GMT, GMT_cpy); bailout (code);}
 
 EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
-	bool first = true, first_geo = true;
-	unsigned int row, col, n_output, w_col = 3, orig_mode;
+	bool first = true, first_geo = true, first_grd = true;
+	openmp_int row, col;
+	unsigned int n_output, w_col = 3, orig_mode;
 	int error = 0, write_error = 0;
 
 	uint64_t ij, ij_gmt, n_total = 0, n_suppressed = 0;
 
 	char header[GMT_BUFSIZ];
 
-	double wesn[4], d_value, A_scale = 1.0, A_geo = 0.0, out[4], *x = NULL, *y = NULL;
+	double wesn[4], d_value, A_scale = 1.0, A_geo = 0.0, out[7], *x = NULL, *y = NULL;
+	double rgb[4] = {0.0, 0.0, 0.0, 0.0};
 
 	struct GMT_GRID *G = NULL, *W = NULL;
 	struct GMT_GRID_HEADER_HIDDEN *H = NULL;
 	struct GMT_RECORD *Out = NULL;
 	struct GMT_Z_IO io;
 	struct GMT_OPTION *opt = NULL;
+	struct GMT_PALETTE *P = NULL;
 	struct GRD2XYZ_CTRL *Ctrl = NULL;
 	struct GMT_CTRL *GMT = NULL, *GMT_cpy = NULL;
 	struct GMT_OPTION *options = NULL;
@@ -447,7 +466,7 @@ EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
 
 	/* Parse the command-line arguments */
 
-	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, NULL, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
+	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, module_kw, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
 	if (GMT_Parse_Common (API, THIS_MODULE_OPTIONS, options)) Return (API->error);
 	Ctrl = New_Ctrl (GMT);	/* Allocate and initialize a new control structure */
 	if ((error = parse (GMT, Ctrl, &io, options)) != 0) Return (error);
@@ -470,13 +489,22 @@ EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
 	}
 	else if (io.binary) GMT->common.b.active[GMT_OUT] = true;
 
-	n_output = (Ctrl->Z.active) ? 1 : ((Ctrl->W.active) ? 4 : ((Ctrl->C.mode == 2) ? 2 : 3));
+	if (Ctrl->C.active) {	/* Just sample the CPT for the grid z values and append three columns r g b a to the x y z */
+		if ((P = gmt_get_palette (GMT, Ctrl->C.file, GMT_CPT_OPTIONAL, 0.0, 255.0, Ctrl->C.dz)) == NULL) {
+			GMT_Report (API, GMT_MSG_ERROR, "Failed to read CPT %s.\n", Ctrl->C.file);
+			Return (API->error);	/* Well, that did not go so well... */
+		}
+		Out = gmt_new_record (GMT, out, NULL);	/* Since we only need to worry about numerics in this module */
+	}
+	n_output = (Ctrl->Z.active) ? 1 : ((Ctrl->W.active) ? 4 : ((Ctrl->F.mode == 2) ? 2 : 3));
 	if (Ctrl->Z.active)
 		n_output = 1;
+	else if (Ctrl->C.active)	/* x, y, z, r[, g, b], a */
+		n_output = (P->is_gray) ? 5 : 7;
 	else {
-		n_output = (Ctrl->C.mode == 2) ? 2 : 3;
+		n_output = (Ctrl->F.mode == 2) ? 2 : 3;
 		if (Ctrl->W.active) n_output++;
-		if (Ctrl->C.mode == 2) w_col = 2;
+		if (Ctrl->F.mode == 2) w_col = 2;
 	}
 	if ((error = GMT_Set_Columns (API, GMT_OUT, n_output, GMT_COL_FIX_NO_TEXT)) != GMT_NOERROR) Return (error);
 
@@ -491,6 +519,7 @@ EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
 	}
 
 	out[w_col] = Ctrl->W.weight;
+
 
 	for (opt = options; opt; opt = opt->next) {	/* Loop over arguments, skip options */
 
@@ -509,6 +538,28 @@ EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
 			Return (API->error);	/* Get subset */
 		}
 
+		if (Ctrl->C.active) {	/* Just sample the CPT for the z value and append four columns r g b a */
+			unsigned int k, kol, geo = gmt_M_is_geographic (GMT, GMT_IN), nc = (P->is_gray) ? 1 : 3;
+			static char *rgbcoord[2] = {"x\ty\tz\tred\tgreen\tblue\ttransparency", "lon\tlat\tz\tred\tgreen\tblue\ttransparency"};
+			static char *graycoord[2] = {"x\ty\tz\tgray\ttransparency", "lon\tlat\tz\tgray\ttransparency"};
+			char *this = (nc == 3) ? rgbcoord[geo] : graycoord[geo];
+			if (first_grd) GMT_Put_Record (API, GMT_WRITE_TABLE_HEADER, this);
+			first_grd = false;
+			x = (G->x) ? G->x : gmt_grd_coord (GMT, G->header, GMT_X);
+			y = (G->y) ? G->y : gmt_grd_coord (GMT, G->header, GMT_Y);
+			gmt_M_grd_loop (GMT, G, row, col, ij) {
+				out[GMT_X] = x[col];	out[GMT_Y] = y[row];	out[GMT_Z] = G->data[ij];
+				gmt_get_rgb_from_z (GMT, P, G->data[ij], rgb);
+				for (k = 0, kol = GMT_Z + 1; k < nc; k++) out[kol++] = irint (255.0 * rgb[k]);	/* r/g/b in 0-255 range */
+				out[kol] = irint (100.0 * rgb[k]);	/* Transparency in 0-100% range */
+				write_error = GMT_Put_Record (API, GMT_WRITE_DATA, Out);
+				if (write_error == GMT_NOTSET) n_suppressed++;	/* Bad value caught by -s[r] */
+			}
+			if (GMT_Destroy_Data (API, &G) != GMT_NOERROR) {	/* Free the grid since there may be more of them */
+				Return (API->error);
+			}
+			continue;	/* Back to next grid */
+		}
 		if (Ctrl->L.active) {	/* Check that limits are within range and warn otherwise */
 			orig_mode = Ctrl->L.mode;	/* In case we have many grids */
 			if (Ctrl->L.mode == GRD2XYZ_Y) {	/* Convert y coordinate to nearest row */
@@ -538,10 +589,13 @@ EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
 
 		if (Ctrl->Z.active) {	/* Write z-values only to stdout */
 			bool previous = GMT->common.b.active[GMT_OUT], rst = false;
+			unsigned int was;
 			int (*save) (struct GMT_CTRL *, FILE *, uint64_t, double *, char *);
 			save = GMT->current.io.output;
 			Out = gmt_new_record (GMT, &d_value, NULL);	/* Since we only need to worry about numerics in this module */
-
+			was = GMT->common.d.first_col[GMT_IN];
+			if (GMT->common.d.active[GMT_IN])	/* Change the default to the only column available */
+				GMT->common.d.first_col[GMT_IN] = GMT_X;
 			if (Ctrl->Z.swab) GMT_Report (API, GMT_MSG_INFORMATION, "Binary output data will be byte swapped\n");
 			GMT->current.io.output = gmt_z_output;		/* Override and use chosen output mode */
 			GMT->common.b.active[GMT_OUT] = io.binary;	/* May have to set binary as well */
@@ -563,6 +617,7 @@ EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
 			GMT->current.io.output = save;			/* Reset pointer */
 			GMT->common.b.active[GMT_OUT] = previous;	/* Reset binary */
 			if (rst) GMT->current.io.io_nan_col[0] = GMT_Z;	/* Reset to what it was */
+			if (GMT->common.d.active[GMT_IN]) GMT->common.d.first_col[GMT_IN] = was;	/* Reset to what it was */
 		}
 		else if (Ctrl->E.active) {	/* ESRI format */
 			double slop;
@@ -622,7 +677,7 @@ EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
 					}
 					strcat (record, item);
 					rec_len += len;
-					if (col < (G->header->n_columns-1)) { strcat (record, " "); rec_len++;}
+					if (col < (openmp_int)(G->header->n_columns-1)) { strcat (record, " "); rec_len++;}
 				}
 				GMT_Put_Record (API, GMT_WRITE_DATA, Out);	/* Write a whole y line */
 			}
@@ -646,11 +701,11 @@ EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
 			GMT_Report (API, GMT_MSG_INFORMATION, "Option -T: Translating coordinates to ensure x_min = y_min = z_min = 0\n");
 			if (!gmt_M_is_zero (G->x[0])) {	/* Shift x coordinates */
 				double origin = G->x[0];
-				for (col = 0; col < G->header->n_columns; col++) G->x[col] -= origin;
+				for (col = 0; col < (openmp_int)G->header->n_columns; col++) G->x[col] -= origin;
 			}
 			if (!gmt_M_is_zero (G->y[0])) {	/* Shift y coordinates */
 				double origin = G->y[G->header->n_rows-1];
-				for (row = 0; row < G->header->n_rows; row++) G->y[row] -= origin;
+				for (row = 0; row < (openmp_int)G->header->n_rows; row++) G->y[row] -= origin;
 			}
 			gmt_M_grd_loop (GMT, G, row, col, ij) {	/* Change data range from z_min/z_max to <base>/(z_max-<bas>) */
 				if (gmt_M_is_dnan (G->data[ij])) G->data[ij] = (gmt_grdfloat)G->header->z_min;	/* Replace NaN's with zmin */
@@ -678,8 +733,8 @@ EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
 #endif
 				fwrite (&n_tri_write, sizeof (unsigned int), 1U, fp);
 			}
-			for (row = 1; row < G->header->n_rows; row++) {	/* Deal with triangles made up of nodes at row and row-1 */
-				for (col = 0; col < (G->header->n_columns-1); col++) {	/* Deal with triangles for col and col+1 */
+			for (row = 1; row < (openmp_int)G->header->n_rows; row++) {	/* Deal with triangles made up of nodes at row and row-1 */
+				for (col = 0; col < (openmp_int)(G->header->n_columns-1); col++) {	/* Deal with triangles for col and col+1 */
 					ij = gmt_M_ijp (G->header, row, col);	/* LL node of this grid cell */
 					/* Do UL and LR triangles */
 					grd2xyz_out_triangle (GMT, fp, G, row, col, ij, 1, Ctrl->T.binary);
@@ -687,11 +742,11 @@ EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
 				}
 			}
 			/* Time to write the four sides and base */
-			for (col = 0; col < (G->header->n_columns-1); col++) {	/* Deal with triangles for S and N facade */
+			for (col = 0; col < (openmp_int)(G->header->n_columns-1); col++) {	/* Deal with triangles for S and N facade */
 				place_SN_triangles (GMT, fp, G, 0, col, Ctrl->T.binary);
 				place_SN_triangles (GMT, fp, G, G->header->n_rows-1, col, Ctrl->T.binary);
 			}
-			for (row = 0; row < (G->header->n_rows-1); row++) {	/* Deal with triangles for E and W facade */
+			for (row = 0; row < (openmp_int)(G->header->n_rows-1); row++) {	/* Deal with triangles for E and W facade */
 				place_WE_triangles (GMT, fp, G, row, 0, Ctrl->T.binary);
 				place_WE_triangles (GMT, fp, G, row, G->header->n_columns-1, Ctrl->T.binary);
 			}
@@ -735,10 +790,10 @@ EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
 			x = (G->x) ? G->x : gmt_grd_coord (GMT, G->header, GMT_X);
 			y = (G->y) ? G->y : gmt_grd_coord (GMT, G->header, GMT_Y);
 			Out = gmt_new_record (GMT, out, NULL);	/* Since we only need to worry about numerics in this module */
-			if (Ctrl->C.active) {	/* Replace x,y with col,row */
-				if (Ctrl->C.mode < 2) {
-					gmt_M_row_loop  (GMT, G, row) y[row] = row + Ctrl->C.mode;
-					gmt_M_col_loop2 (GMT, G, col) x[col] = col + Ctrl->C.mode;
+			if (Ctrl->F.active) {	/* Replace x,y with col,row */
+				if (Ctrl->F.mode < 2) {
+					gmt_M_row_loop  (GMT, G, row) y[row] = row + Ctrl->F.mode;
+					gmt_M_col_loop2 (GMT, G, col) x[col] = col + Ctrl->F.mode;
 				}
 				else
 					GMT->current.io.io_nan_col[0] = GMT_Y;	/* Since that is where z will go now */
@@ -748,7 +803,7 @@ EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
 			if (GMT->current.setting.io_header[GMT_OUT] && first) {
 				if (!G->header->x_units[0]) strcpy (G->header->x_units, "x");
 				if (!G->header->y_units[0]) strcpy (G->header->y_units, "y");
-				if (Ctrl->C.active) {
+				if (Ctrl->F.active) {
 					strcpy (G->header->x_units, "col");
 					strcpy (G->header->y_units, "row");
 				}
@@ -772,7 +827,7 @@ EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
 					if (Ctrl->L.mode == GRD2XYZ_Y && !doubleAlmostEqualZero (y[row], Ctrl->L.value)) continue;	/* Skip these rows */
 					if (Ctrl->L.mode == GRD2XYZ_X && !doubleAlmostEqualZero (x[col], Ctrl->L.value)) continue;	/* Skip these columns */
 				}
-				if (Ctrl->C.mode == 2) {	/* Write index, z */
+				if (Ctrl->F.mode == 2) {	/* Write index, z */
 					out[GMT_X] = (double)gmt_M_ij0 (G->header, row, col);
 					out[GMT_Y] = G->data[ij];
 					if (GMT->common.d.active[GMT_OUT] && gmt_M_is_dnan (out[GMT_Y]))	/* Input matched no-data setting, so change to NaN */
@@ -806,6 +861,8 @@ EXTERN_MSC int GMT_grd2xyz (void *V_API, int mode, void *args) {
 	if (GMT_End_IO (API, GMT_OUT, 0) != GMT_NOERROR) {	/* Disables further data output */
 		Return (API->error);
 	}
+
+	if (Ctrl->C.active) gmt_M_free (GMT, Out);
 
 	if (!Ctrl->T.active) GMT_Report (API, GMT_MSG_INFORMATION, "%" PRIu64 " values extracted\n", n_total - n_suppressed);
 	if (n_suppressed) {

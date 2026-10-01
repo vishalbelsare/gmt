@@ -4,7 +4,7 @@ REM Purpose:	Illustrates volumes of grids inside contours and spatial
 REM		selection of data
 REM GMT modules:	gmtset, gmtselect, gmtspatial, grdclip, grdcontour, grdimage
 REM GMT modules:	grdmath, grdvolume, makecpt, coast, colorbar, text, plot
-REM DOS calls:	del
+REM DOS calls:	del, echo, set
 REM
 gmt begin ex18
 	REM Use spherical gmt projection since SS data define on sphere
@@ -45,12 +45,12 @@ gmt begin ex18
 		gmt grdmath @AK_gulf_grav.nc mask.nc MUL = tmp.nc
 
 		gmt grdvolume tmp.nc -C50 -Sk -o1 > area.txt
-		gmt grdvolume tmp.nc -C50 -Sk -o2 > volumn.txt
+		gmt grdvolume tmp.nc -C50 -Sk -o2 > volume.txt
 		set /p area=<area.txt
-		set /p volumn=<volumn.txt
+		set /p volume=<volume.txt
 
 		echo ^> -149 52.5 14p 6.6c j > tmp.txt
-		echo Volumes: %volumn% mGal\267km@+2@+ >> tmp.txt
+		echo Volumes: %volume% mGal\267km@+2@+ >> tmp.txt
 		echo Areas: %area% km@+2@+ >> tmp.txt
 		gmt text tmp.txt -M -Gwhite -Wthin -Dj0.7c -F+f14p,Helvetica-Bold+jLB -C8p
 	gmt subplot end

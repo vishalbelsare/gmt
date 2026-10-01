@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -36,6 +36,7 @@
  */
 
 #include "gmt_dev.h"
+#include "longopt/psmask_inc.h"
 
 #define THIS_MODULE_CLASSIC_NAME	"psmask"
 #define THIS_MODULE_MODERN_NAME	"mask"
@@ -436,7 +437,7 @@ static int usage (struct GMTAPI_CTRL *API, int level) {
 	const char *name = gmt_show_name_and_purpose (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_PURPOSE);
 	if (level == GMT_MODULE_PURPOSE) return (GMT_NOERROR);
 	GMT_Usage (API, 0, "usage: %s <table> %s %s %s [%s] [-C] [-D<template>] [-F[l|r]] [-G<fill>] %s[-L<grdfile>[+i|o]] [-N] "
-		"%s%s[-Q<min>] [-S%s] [-T] [%s] [%s] [%s] [%s] %s[%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s]\n",
+		"%s%s[-Q<min>] [-S%s] [-T] [%s] [%s] [%s] [%s] %s [%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s]\n",
 		name, GMT_I_OPT, GMT_J_OPT, GMT_Rgeoz_OPT, GMT_B_OPT, API->K_OPT, API->O_OPT, API->P_OPT, GMT_RADIUS_OPT, GMT_U_OPT,
 		GMT_V_OPT, GMT_X_OPT, GMT_Y_OPT, GMT_b_OPT, API->c_OPT, GMT_d_OPT, GMT_e_OPT, GMT_h_OPT, GMT_i_OPT, GMT_p_OPT,
 		GMT_qi_OPT, GMT_r_OPT, GMT_t_OPT, GMT_w_OPT, GMT_colon_OPT, GMT_PAR_OPT);
@@ -501,25 +502,23 @@ static int parse (struct GMT_CTRL *GMT, struct PSMASK_CTRL *Ctrl, struct GMT_OPT
 		switch (opt->option) {
 
 			case '<':	/* Skip input files */
-				if (GMT_Get_FilePath (API, GMT_IS_DATASET, GMT_IN, GMT_FILE_REMOTE, &(opt->arg))) n_errors++;;
+				if (GMT_Get_FilePath (API, GMT_IS_DATASET, GMT_IN, GMT_FILE_REMOTE, &(opt->arg))) n_errors++;
 				break;
 
 			/* Processes program-specific parameters */
 
 			case 'C':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->C.active);
-				Ctrl->C.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 			case 'D':	/* Dump the polygons to files */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->D.active);
-				Ctrl->D.active = true;
-
 				if (gmt_M_compat_check (GMT, 4)) {
 					for (n_plus = -1, k = 0; opt->arg[k]; k++) {
 						if (opt->arg[k] == '+' && opt->arg[k+1] == 'n') {
 							GMT_Report (API, GMT_MSG_COMPAT, "Option -D..+n<min> is deprecated; use -Q instead.\n");
 							Ctrl->Q.min = atoi (&opt->arg[k + 2]);
-							Ctrl->Q.active = true;
+							n_errors += gmt_M_repeated_module_option (API, Ctrl->Q.active);
 							n_plus = k;
 							break;
 						}
@@ -532,7 +531,6 @@ static int parse (struct GMT_CTRL *GMT, struct PSMASK_CTRL *Ctrl, struct GMT_OPT
 				break;
 			case 'F':	/* Orient the clip contours */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->F.active);
-				Ctrl->F.active = true;
 				switch (opt->arg[0]) {
 					case '\0': case 'l':
 						Ctrl->F.value = -1;
@@ -547,7 +545,6 @@ static int parse (struct GMT_CTRL *GMT, struct PSMASK_CTRL *Ctrl, struct GMT_OPT
 				break;
 			case 'G':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->G.active);
-				Ctrl->G.active = true;
 				if (gmt_getfill (GMT, opt->arg, &Ctrl->G.fill)) {
 					gmt_fill_syntax (GMT, 'G', NULL, " ");
 					n_errors++;
@@ -555,12 +552,10 @@ static int parse (struct GMT_CTRL *GMT, struct PSMASK_CTRL *Ctrl, struct GMT_OPT
 				break;
 			case 'I':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->I.active);
-				Ctrl->I.active = true;
 				n_errors += gmt_parse_inc_option (GMT, 'I', opt->arg);
 				break;
 			case 'L':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->L.active);
-				Ctrl->L.active = true;
 				k = 0;
 				if (opt->arg[0] == '-')	/* Old style leading -<name> */
 					Ctrl->L.mode = PSMASK_INSIDE, k = 1;
@@ -579,25 +574,23 @@ static int parse (struct GMT_CTRL *GMT, struct PSMASK_CTRL *Ctrl, struct GMT_OPT
 				break;
 			case 'N':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->N.active);
-				Ctrl->N.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 			case 'Q':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->Q.active);
-				Ctrl->Q.active = true;
-				Ctrl->Q.min = atoi (opt->arg);
+				n_errors += gmt_get_required_uint (GMT, opt->arg, opt->option, 0, &Ctrl->Q.min);
 				break;
 			case 'S':	/* Radius of influence */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->S.active);
-				Ctrl->S.active = true;
 				Ctrl->S.mode = gmt_get_distance (GMT, opt->arg, &(Ctrl->S.radius), &(Ctrl->S.unit));
 				break;
 			case 'T':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->T.active);
-				Ctrl->T.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 
 			default:	/* Report bad options */
-				n_errors += gmt_default_error (GMT, opt->option);
+				n_errors += gmt_default_option_error (GMT, opt);
 				break;
 		}
 	}
@@ -627,8 +620,9 @@ static int parse (struct GMT_CTRL *GMT, struct PSMASK_CTRL *Ctrl, struct GMT_OPT
 #define Return(code) {Free_Ctrl (GMT, Ctrl); gmt_end_module (GMT, GMT_cpy); bailout (code);}
 
 EXTERN_MSC int GMT_psmask (void *V_API, int mode, void *args) {
-	unsigned int section, k, row, col, n_edges, *d_col = NULL, d_row = 0;
-	unsigned int io_mode = GMT_WRITE_SET, max_d_col = 0, ii, jj, i_start, j_start, first = 1;
+	openmp_int row, col, *d_col = NULL, d_row = 0, max_d_col = 0, ii, jj, i_start, j_start;
+	unsigned int section, k, n_edges;
+	unsigned int io_mode = GMT_WRITE_SET, first = 1;
 	unsigned int fmt[3] = {0, 0, 0}, cont_counts[2] = {0, 0}, *edge = NULL;
 	int error = 0;
 	bool node_only, make_plot, closed;
@@ -663,7 +657,7 @@ EXTERN_MSC int GMT_psmask (void *V_API, int mode, void *args) {
 
 	/* Parse the command-line arguments; return if errors are encountered */
 
-	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, NULL, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
+	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, module_kw, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
 	if (GMT_Parse_Common (API, THIS_MODULE_OPTIONS, options)) Return (API->error);
 	Ctrl = New_Ctrl (GMT);	/* Allocate and initialize a new control structure */
 	if ((error = parse (GMT, Ctrl, options)) != 0) Return (error);
@@ -779,10 +773,10 @@ EXTERN_MSC int GMT_psmask (void *V_API, int mode, void *args) {
 				if (gmt_M_rec_is_eof (GMT)) 		/* Reached end of file */
 					break;
 			}
-		if (In->data == NULL) {
-			gmt_quit_bad_record (API, In);
-			Return (API->error);
-		}
+			if (In->data == NULL) {
+				gmt_quit_bad_record (API, In);
+				Return (API->error);
+			}
 
 			in = In->data;	/* Only need to process numerical part here */
 
@@ -807,7 +801,7 @@ EXTERN_MSC int GMT_psmask (void *V_API, int mode, void *args) {
 								grd[ij] = 1;
 							continue;
 						}
-						for (row = 0; row < Grid->header->n_rows && (distance = gmt_distance (GMT, 0.0, 90.0, grd_x0[0], grd_y0[row])) <= Ctrl->S.radius; row++) {
+						for (row = 0; row < (openmp_int)Grid->header->n_rows && (distance = gmt_distance (GMT, 0.0, 90.0, grd_x0[0], grd_y0[row])) <= Ctrl->S.radius; row++) {
 							gmt_M_col_loop (GMT, Grid, row, col, ij)	/* Set this entire row */
 								grd[ij] = 1;
 						}
@@ -834,13 +828,14 @@ EXTERN_MSC int GMT_psmask (void *V_API, int mode, void *args) {
 
 				j_start = (row > d_row) ? row - d_row : 0;
 				for (jj = j_start; jj <= row + d_row; jj++) {
-					if (jj >= Grid->header->n_rows) continue;
+					if (jj >= (openmp_int)Grid->header->n_rows) continue;
 					i_start = (col > d_col[jj]) ? col - d_col[jj] : 0;
 					for (ii = i_start; ii <= col + d_col[jj]; ii++) {
-						if (ii >= Grid->header->n_columns) continue;
+						if (ii >= (openmp_int)Grid->header->n_columns) continue;
+						ij = gmt_M_ijp (Grid->header, jj, ii);
+						if (grd[ij]) continue;	/* Already set */
 						distance = gmt_distance (GMT, x0, y0, grd_x0[ii], grd_y0[jj]);
 						if (distance > Ctrl->S.radius) continue;
-						ij = gmt_M_ijp (Grid->header, jj, ii);
 						grd[ij] = 1;
 					}
 				}
@@ -857,8 +852,8 @@ EXTERN_MSC int GMT_psmask (void *V_API, int mode, void *args) {
 
 		/* Force perimeter nodes to be false; thus all contours will be closed */
 
-		for (col = 0, ij = (Grid->header->n_rows-1) * (uint64_t)Grid->header->n_columns; col < Grid->header->n_columns; col++) grd[col] = grd[col+ij] = 0;
-		for (row = 0; row < Grid->header->n_rows; row++) grd[row*Grid->header->n_columns] = grd[(row+1)*Grid->header->n_columns-1] = 0;
+		for (col = 0, ij = (Grid->header->n_rows-1) * (uint64_t)Grid->header->n_columns; col < (openmp_int)Grid->header->n_columns; col++) grd[col] = grd[col+ij] = 0;
+		for (row = 0; row < (openmp_int)Grid->header->n_rows; row++) grd[row*Grid->header->n_columns] = grd[(row+1)*Grid->header->n_columns-1] = 0;
 
 		if (Ctrl->L.active) {	/* Save a copy of the grid to file */
 			struct GMT_GRID *G = NULL;
@@ -946,11 +941,11 @@ EXTERN_MSC int GMT_psmask (void *V_API, int mode, void *args) {
 			double y_bot, y_top, *xx = NULL, *yy = NULL, *xp = NULL, *yp = NULL;
 			GMT_Report (API, GMT_MSG_INFORMATION, "Tiling...\n");
 
-			for (row = 0; row < Grid->header->n_rows; row++) {
+			for (row = 0; row < (openmp_int)Grid->header->n_rows; row++) {
 				y_bot = grd_y0[row] - inc2[GMT_Y];
 				y_top = grd_y0[row] + inc2[GMT_Y];
 				ij = gmt_M_ijp (Grid->header, row, 0);
-				for (col = 0; col < Grid->header->n_columns; col++, ij++) {
+				for (col = 0; col < (openmp_int)Grid->header->n_columns; col++, ij++) {
 					if (grd[ij] == 0) continue;
 
 					np = gmt_graticule_path (GMT, &xx, &yy, 1, true, grd_x0[col] - inc2[GMT_X], grd_x0[col] + inc2[GMT_X], y_bot, y_top);

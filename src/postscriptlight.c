@@ -1,16 +1,18 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 2009-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ * Copyright (c) 2009-2025 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ * See LICENSE.TXT file for copying and redistribution conditions.
  *
- *	This program is free software; you can redistribute it and/or modify
- *	it under the terms of the GNU Lesser General Public License as published by
- *	the Free Software Foundation; version 3 or any later version.
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation; version 3 or any later version.
  *
- *	This program is distributed in the hope that it will be useful,
- *	but WITHOUT ANY WARRANTY; without even the implied warranty of
- *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *	GNU Lesser General Public License for more details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
  *
+ * Contact info: www.generic-mapping-tools.org
  *--------------------------------------------------------------------*/
 /* 			PSL: PostScript Light
  *
@@ -165,6 +167,9 @@
 #	define PRIuS "Iu"  /* printf size_t */
 #else
 #	define PRIuS "zu"  /* printf size_t */
+#endif
+#if _WIN32
+#include <fcntl.h>     /* for _O_TEXT and _O_BINARY */
 #endif
 
 /* Define bswap32 */
@@ -383,6 +388,10 @@ static struct PSL_FONT PSL_standard_fonts[PSL_N_STANDARD_FONTS] = {
 #define PSL_LC	0
 #define PSL_UC	1
 
+/* Arguments for psl_convert_path */
+#define PSL_SHORTEN_PATH   0  /* Will apply one of two shortening algorithm to the integer PSL coordinates */
+#define PSL_CONVERT_PATH   1  /* Will only convert to PSL integer coordinates but no shortening takes place */
+
 struct PSL_WORD {	/* Used for type-setting text */
 	int font_no;
 	int flag;
@@ -591,7 +600,7 @@ static void *psl_memory (struct PSL_CTRL *PSL, void *prev_addr, size_t nelem, si
 			PSL_free (prev_addr);
 			return (NULL);
 		}
-		if ((tmp = realloc ( prev_addr, nelem * size)) == NULL) {
+		if ((tmp = realloc (prev_addr, nelem * size + 1)) == NULL) {
 			mem = (double)(nelem * size);
 			k = 0;
 			while (mem >= 1024.0 && k < 3) mem /= 1024.0, k++;
@@ -751,7 +760,7 @@ static int psl_ip (struct PSL_CTRL *PSL, double p) {
 	return ((int)lrint (p * PSL->internal.dpp));
 }
 
-static int psl_shorten_path_new (struct PSL_CTRL *PSL, double *x, double *y, int n, int *ix, int *iy, int mode) {
+static int psl_convert_path_new (struct PSL_CTRL *PSL, double *x, double *y, int n, int *ix, int *iy, int mode) {
 	/* Simplifies the (x,y) array by converting it to pixel coordinates (ix,iy)
 	 * and eliminating repeating points and intermediate points along straight
 	 * line segments.  The result is the fewest points needed to draw the path
@@ -767,7 +776,7 @@ static int psl_shorten_path_new (struct PSL_CTRL *PSL, double *x, double *y, int
 		ix[i] = psl_ix (PSL, x[i]);
 		iy[i] = psl_iy (PSL, y[i]);
 	}
-	if (mode == 1) return (n);
+	if (mode == PSL_CONVERT_PATH) return (n);   /* No shortening */
 
 	/* Skip intermediate points that are "close" to the line between point i and point j, where
 	   "close" is defined as less than 1 "dot" (the PostScript resolution) in either direction.
@@ -798,7 +807,7 @@ static int psl_shorten_path_new (struct PSL_CTRL *PSL, double *x, double *y, int
 				if (by < 0 || by > dy) break;
 			}
 			else {
-				if (by > 0 || bx < dy) break;
+				if (by > 0 || by < dy) break;
 			}
 			/* Generic case where the intermediate point is within the x- and y-range */
 			db = abs((int)(dx * by) - (int)(bx * dy));
@@ -823,7 +832,7 @@ static int psl_shorten_path_new (struct PSL_CTRL *PSL, double *x, double *y, int
 	return (k);
 }
 
-static int psl_shorten_path_old (struct PSL_CTRL *PSL, double *x, double *y, int n, int *ix, int *iy, int mode) {
+static int psl_convert_path_old (struct PSL_CTRL *PSL, double *x, double *y, int n, int *ix, int *iy, int mode) {
 	/* Simplifies the (x,y) array by converting it to pixel coordinates (ix,iy)
 	 * and eliminating repeating points and intermediate points along straight
 	 * line segments.  The result is the fewest points needed to draw the path
@@ -841,7 +850,7 @@ static int psl_shorten_path_old (struct PSL_CTRL *PSL, double *x, double *y, int
 		ix[i] = psl_ix (PSL, x[i]);
 		iy[i] = psl_iy (PSL, y[i]);
 	}
-	if (mode == 1) return (n);
+	if (mode == PSL_CONVERT_PATH) return (n);   /* No shortening */
 
 	/* The only truly unique point is the starting point; all else must show increments
 	 * relative to the previous point */
@@ -878,11 +887,12 @@ static int psl_shorten_path_old (struct PSL_CTRL *PSL, double *x, double *y, int
 /* Addressing issue https://github.com/GenericMappingTools/gmt/issues/439 for long DCW polygons.
    #define N_LENGTH_THRESHOLD 100000000 meant we only did new path but now we try 50000 as cutoff */
 #define N_LENGTH_THRESHOLD 50000
-static int psl_shorten_path (struct PSL_CTRL *PSL, double *x, double *y, int n, int *ix, int *iy, int mode) {
+
+static int psl_convert_path (struct PSL_CTRL *PSL, double *x, double *y, int n, int *ix, int *iy, int mode) {
 	if (n > N_LENGTH_THRESHOLD)
-		return psl_shorten_path_old (PSL, x, y, n, ix, iy, mode);
+		return psl_convert_path_old (PSL, x, y, n, ix, iy, mode);
 	else
-		return psl_shorten_path_new (PSL, x, y, n, ix, iy, mode);
+		return psl_convert_path_new (PSL, x, y, n, ix, iy, mode);
 }
 
 static int psl_forcelinewidth (struct PSL_CTRL *PSL, double linewidth) {
@@ -932,7 +942,7 @@ void psl_set_txt_array (struct PSL_CTRL *PSL, const char *prefix, char *array[],
 static void psl_set_reducedpath_arrays (struct PSL_CTRL *PSL, double *x, double *y, int npath, int *n, int *m, int *node) {
 	/* These are used by PSL_plottextline.  We make sure there are no point pairs that would yield dx = dy = 0 (repeat point)
 	 * at the resolution we are using (0.01 DPI units), hence a new n (possibly shorter) is returned. */
-	int i, j, k, p, ii, kk, this_i, this_j, last_i, last_j, i_offset = 0, k_offset = 0, n_skipped, ntot = 0, new_tot = 0, *new_n = NULL;
+	int i, j, k, p, ii, kk, this_i, this_j, last_i, last_j, i_offset = 0, k_offset = 0, n_skipped, ntot = 0, *new_n = NULL;
 	char *use = NULL;
 	if (x == NULL || y == NULL) return;	/* No path */
 	for (p = 0; p < npath; p++) ntot += n[p];	/* Determine total number of points */
@@ -959,7 +969,6 @@ static void psl_set_reducedpath_arrays (struct PSL_CTRL *PSL, double *x, double 
 			}
 		}
 		new_n[p] = j;
-		new_tot += j;
 		i_offset += n[p];
 		k_offset += m[p];
 
@@ -1140,8 +1149,8 @@ static void psl_prepare_buffer (struct PSL_CTRL *C, size_t len) {
 	/* Ensure buffer is large enough to accept additional text of length len */
 	size_t new_len = C->internal.n + len;       /* Need a buffer at least this large */
 	if (new_len < C->internal.n_alloc) return;  /* Already have a buffer that is large enough */
-	while (new_len > C->internal.n_alloc)       /* Wind past what is needed, growing by 1.75 */
-		C->internal.n_alloc = (size_t)(C->internal.n_alloc * 1.75);
+	while (new_len > C->internal.n_alloc)       /* Wind past what is needed, growing by 1.5 */
+		C->internal.n_alloc = (size_t)(C->internal.n_alloc * 1.5);
 	if ((C->internal.buffer = PSL_memory (C, C->internal.buffer, C->internal.n_alloc, char)) == NULL) {
 		PSL_message (C, PSL_MSG_ERROR, "Error: Could not allocate %d additional buffer space - this will not end well\n", len);
 	}
@@ -1713,7 +1722,7 @@ static int psl_pattern_cleanup (struct PSL_CTRL *PSL) {
 
 static int psl_patch (struct PSL_CTRL *PSL, double *x, double *y, int np) {
 	/* Like PSL_plotpolygon but intended for small polygons (< 20 points).  No checking for
-	 * shorter path by calling psl_shorten_path as in PSL_plotpolygon.
+	 * shorter path by calling psl_convert_path as in PSL_plotpolygon.
 	 */
 
 	int ix[20], iy[20], i, n, n1;
@@ -1735,6 +1744,7 @@ static int psl_patch (struct PSL_CTRL *PSL, double *x, double *y, int np) {
 	n1 = --n;
 	for (i = n - 1; i >= 0; i--, n--) PSL_command (PSL, "%d %d ", ix[n] - ix[i], iy[n] - iy[i]);
 	PSL_command (PSL, "%d %d %d SP\n", n1, ix[0], iy[0]);
+	PSL_command(PSL, "FO\n");		/* Close polygon and stroke/fill as set by PSL_setfill */
 	return (PSL_NO_ERROR);
 }
 
@@ -2144,12 +2154,19 @@ static int psl_paragraphprocess (struct PSL_CTRL *PSL, double y, double fontsize
 							if (n_scan == 1) {	/* Got gray shade */
 								rgb[0] /= 255.0;	/* Normalize to 0-1 range */
 								rgb[1] = rgb[2] = rgb[0];
-								if (rgb[0] < 0.0 || rgb[0] > 1.0) error++;
+								if (rgb[0] < 0.0 || rgb[0] > 1.0) {
+									PSL_message (PSL, PSL_MSG_ERROR, "Error: Normalized gray value < 0 or > 1\n");
+									error++;
+								}
 							}
 							else if (n_scan == 3) {	/* Got r/g/b */
+								static char *color[3] = {"red", "green", "blue"};
 								for (p = 0; p < 3; p++) {
 									rgb[p] /= 255.0;	/* Normalize to 0-1 range */
-									if (rgb[p] < 0.0 || rgb[p] > 1.0) error++;
+									if (rgb[p] < 0.0 || rgb[p] > 1.0) {
+										error++;
+										PSL_message (PSL, PSL_MSG_ERROR, "Error: Normalized %s value < 0 or > 1\n", color[p]);
+									}
 								}
 							}
 							else	/* Got crap */
@@ -2335,7 +2352,7 @@ static int psl_paragraphprocess (struct PSL_CTRL *PSL, double y, double fontsize
 
 	psl_freewords (word, n_alloc_txt);
 	PSL_free (word);
-	return (sub_on|super_on|scaps_on|symbol_on|font_on|size_on|color_on|under_on);
+	return (error + sub_on|super_on|scaps_on|symbol_on|font_on|size_on|color_on|under_on);
 }
 
 static void psl_get_origin (double xt, double yt, double xr, double yr, double r, double *xo, double *yo, double *b1, double *b2) {
@@ -2666,7 +2683,7 @@ static int psl_vector (struct PSL_CTRL *PSL, double x, double y, double param[])
 	 * param[PSL_VEC_TAIL_WIDTH] = tailwidth;
     * param[PSL_VEC_HEAD_LENGTH] = headlength;
     * param[PSL_VEC_HEAD_WIDTH] = headwidth;
-	 * param[5PSL_VEC_HEAD_SHAPE] = headshape;
+	 * param[PSL_VEC_HEAD_SHAPE] = headshape;
     * param[PSL_VEC_STATUS] = status bit flags
 	 * param[PSL_VEC_HEAD_TYPE_BEGIN] = begin head type;
     * param[PSL_VEC_HEAD_TYPE_END] = end head type
@@ -2677,7 +2694,7 @@ static int psl_vector (struct PSL_CTRL *PSL, double x, double y, double param[])
 
 	double angle, xtip, ytip, r, s, tailwidth, headlength, headwidth, headshape, length_inch;
 	double xx[6], yy[6], xc[3], yc[3], off[2], yshift[2], trim[2], xp = 0.0, h_penwidth;
-	int length, asymmetry[2], n, heads, outline, fill, status;
+	int length, asymmetry[2], n, heads, outline, fill, status, head_check;
 	unsigned int kind[2];
 	char *line[2] = {"N", "P S"}, *dump[2] = {"", "fs"};
 
@@ -2714,6 +2731,13 @@ static int psl_vector (struct PSL_CTRL *PSL, double x, double y, double param[])
 	if (kind[PSL_END] == PSL_VEC_ARROW_PLAIN) off[PSL_END] = 0.5 * tailwidth *  headlength / headwidth;
 	else if (kind[PSL_END] == PSL_VEC_TAIL) off[PSL_END] = FIN_SLANT_COS * headwidth + FIN_LENGTH_SCALE * headlength - tailwidth;
 	heads = PSL_vec_head (status);		  /* 1 = at beginning, 2 = at end, 3 = both */
+	head_check = PSL_vec_headcheck (status);		  /* nonzero if we should always place a head regardless of length */
+	if (head_check) {	/* Must worry about head size relative to vector length */
+		double h_length_limit = length_inch; /* Max length of arrow in inches */
+		if (heads == 3) h_length_limit *= 0.5;    /* Split this length between the two heads */
+		if (heads & 1 && headlength > h_length_limit) heads -= 1;	/* No room for head */
+		if (heads & 2 && headlength > h_length_limit) heads -= 2;	/* No room for head */
+	}
 	PSL_setlinewidth (PSL, tailwidth * PSL_POINTS_PER_INCH);	/* Inherits color from current pen */
 	outline = ((status & PSL_VEC_OUTLINE) > 0);
 	fill = ((status & PSL_VEC_FILL) > 0);
@@ -3317,19 +3341,33 @@ static int psl_init_fonts (struct PSL_CTRL *PSL) {
 }
 
 static char *psl_putdash (struct PSL_CTRL *PSL, char *pattern, double offset) {
-	/* Writes the dash pattern */
+	/* Writes the dash pattern.  Note: Unlike a pen width, the dashes and gaps
+	 * set here cannot all be zero - it results in a PostScript error for discussion
+	 * see https://github.com/GenericMappingTools/gmt/issues/6833. Here, we will
+	 * ensure that this does not happen by printing a nasty warning if it happens. */
 	static char text[PSL_BUFSIZ];
-	char mark = '[';
-	size_t len = 0;
 	if (pattern && pattern[0]) {
+		char mark = '[';
+		size_t len = 0, non_zero = 0;
+		double w;
 		while (*pattern) {
-			sprintf (&text[len], "%c%d", mark, psl_ip (PSL, atof(pattern)));
+			w = atof(pattern) * PSL->internal.dpp;
+			if (w > 0.0) non_zero++;
+			if (w > 4.0)	/* Set as integer PS. Max error 12.5% (e.g.,  4.499999 -> 4), dropping for larger w */
+				sprintf (&text[len], "%c%d", mark, (int)rint (w));
+			else	/* Too small for integer, set as floating point */
+				sprintf (&text[len], "%c%lg", mark, w);
 			while (*pattern && *pattern != ' ') pattern++;
 			while (*pattern && *pattern == ' ') pattern++;
 			mark = ' ';
 			len = strlen(text);
 		}
-		sprintf (&text[len], "] %d B", psl_ip (PSL, offset));
+		if (non_zero)
+			sprintf (&text[len], "] %lg B", offset * PSL->internal.dpp);
+		else {
+			sprintf (text, "[] 0 B");   /* Reset to continuous line */
+			PSL_message (PSL, PSL_MSG_WARNING, "Dashed line pattern invalid - ignored\n");
+		}
 	}
 	else
 		sprintf (text, "[] 0 B");	/* Reset to continuous line */
@@ -3850,7 +3888,9 @@ int PSL_plotcolorimage (struct PSL_CTRL *PSL, double x, double y, double xsize, 
 	/* Colormask or interpolate */
 	it = nx < 0 ? 1 : (nbits < 0 ? 2 : 0);
 
-	if (PSL->internal.color_mode != PSL_GRAY && (image = psl_makecolormap (PSL, buffer, nx, ny, nbits))) {
+	if (!PSL->internal.no_quantization &&
+	    PSL->internal.color_mode != PSL_GRAY &&
+	    (image = psl_makecolormap (PSL, buffer, nx, ny, nbits))) {
 		/* Creation of colormap was successful */
 		nbits = psl_bitreduce (PSL, image->buffer, nx, ny, image->colormap->ncolors);
 
@@ -3957,6 +3997,10 @@ int PSL_plotsymbol (struct PSL_CTRL *PSL, double x, double y, double size[], int
 			PSL_command (PSL, "%d %d %d S%c\n", psl_iz (PSL, 0.5 * size[0]), psl_ix (PSL, x), psl_iy (PSL, y), (char)symbol);
 			break;
 
+	case PSL_SPHERE:	/* Sphere */
+		PSL_command (PSL, "%d %d %d SPhere\n", psl_iz (PSL, 0.5 * size[0]), psl_ix (PSL, x), psl_iy (PSL, y));
+		break;
+
 		/* Multi-parameter fillable symbols */
 
 		case PSL_WEDGE:		/* A wedge or pie-slice. size[0] = radius, size[1..2] = azimuth range of arc */
@@ -4000,6 +4044,73 @@ int PSL_plotsegment (struct PSL_CTRL *PSL, double x0, double y0, double x1, doub
 	PSL->internal.ix = psl_ix (PSL, x1);
 	PSL->internal.iy = psl_iy (PSL, y1);
 	PSL_command (PSL, "N %d %d M %d %d D S\n", ix, iy, PSL->internal.ix - ix, PSL->internal.iy - iy);
+	return (PSL_NO_ERROR);
+}
+
+int PSL_plotline_clipped_by_textbox(struct PSL_CTRL *PSL, double x0, double y0, double x1, double y1,
+                                    double fontsize, char *text, double angle, int justify, double offset[2]) {
+	/* Draw a line from (x0,y0) to the text-reference point (x1,y1), clipping out the part
+	 * that falls inside the text bounding box (plus optional clearance offset) around (x1,y1).
+	 * The box is sized for the given text/fontsize/justify and rotated by angle. Used for
+	 * leader lines from a data point to an offset text label (pstext -D...+v<pen>).
+	 */
+	const char *jx[3] = {"0", "PSL_dim_w 2 div neg", "PSL_dim_w neg"};
+	const char *jy[3] = {"0", "PSL_dim_h 2 div neg", "PSL_dim_h neg"};
+	int x_just = 0, y_just = 0, ixl, iyl;
+	double a_rad, ca, sa, dx_u, dy_u, xl_u, yl_u, saved_fontsize;
+
+	if (text == NULL || text[0] == '\0')	/* No text -- just draw the line */
+		return (PSL_plotsegment(PSL, x0, y0, x1, y1));
+
+	if (justify > 1) {
+		x_just = (justify + 3) % 4;	/* 0=left, 1=center, 2=right */
+		y_just = justify / 4;		/* 0=bottom, 1=middle, 2=top */
+	}
+
+	/* Compute line-start position in the local (rotated) coord system whose origin is at (x1,y1) */
+	a_rad = angle * D2R;
+	ca = cos(a_rad);  sa = sin(a_rad);
+	dx_u = x0 - x1;    dy_u = y0 - y1;
+	xl_u =  dx_u * ca + dy_u * sa;
+	yl_u = -dx_u * sa + dy_u * ca;
+	ixl = (int)lrint(xl_u * PSL->internal.x2ix);
+	iyl = (int)lrint(yl_u * PSL->internal.y2iy);
+
+	saved_fontsize = PSL->current.fontsize;	/* PSL_deftextdim will update the cache; restore after grestore */
+
+	PSL_comment(PSL, "PSL_plotline_clipped_by_textbox begin\n");
+	PSL_command(PSL, "V ");						/* gsave */
+	PSL_command(PSL, "%d %d T ", psl_ix(PSL, x1), psl_iy(PSL, y1));
+	if (angle != 0.0) PSL_command(PSL, "%.12g R ", angle);
+	PSL_deftextdim(PSL, "PSL_dim", fontsize, text);		/* Defines PSL_dim_w, _h, _d, _x0, _x1 in PS */
+	PSL_defunits(PSL, "PSL_dx", offset[0]);
+	PSL_defunits(PSL, "PSL_dy", offset[1]);
+
+	/* Build even-odd clip path: outer rectangle + textbox rectangle (the hole). The outer
+	 * rectangle just needs to enclose both the hole and the whole line; an astronomically
+	 * large placeholder standing for "infinity" makes some PDF converters (e.g. Ghostscript's
+	 * pdfwrite) miscompute the clip and drop the entire line (#9209). Sum absolute values
+	 * only: PSL_dim_h is negative for text sitting entirely below the baseline (all-subscript)
+	 * and PSL_dx|dy for a negative -C, so a signed sum could shrink the rectangle below the
+	 * hole it must contain. PSL_dim_h enters twice since it also bounds the justify shift. */
+	PSL_command(PSL, "/PSL_obx PSL_dim_w abs PSL_dim_h abs 2 mul add PSL_dim_d abs add "
+	                 "PSL_dim_x0 abs add PSL_dim_x1 abs add PSL_dx abs add PSL_dy abs add %d add def\n",
+	                 abs(ixl) + abs(iyl) + 100);
+	PSL_command(PSL, "N PSL_obx neg PSL_obx neg M PSL_obx 2 mul 0 D 0 PSL_obx 2 mul D PSL_obx 2 mul neg 0 D P\n");
+	PSL_command(PSL, "%s PSL_dim_x0 add PSL_dx sub %s PSL_dim_d add PSL_dy sub M ",
+	            jx[x_just], jy[y_just]);
+	PSL_command(PSL, "PSL_dim_x1 PSL_dim_x0 sub PSL_dx 2 mul add 0 D ");
+	PSL_command(PSL, "0 PSL_dim_h PSL_dim_d sub PSL_dy 2 mul add D ");
+	PSL_command(PSL, "PSL_dim_x1 PSL_dim_x0 sub PSL_dx 2 mul add neg 0 D P\n");
+	PSL_command(PSL, "eoclip N\n");
+
+	/* Draw the (now clipped) line from (xl, yl) to (0, 0) in local coords */
+	PSL_command(PSL, "N %d %d M %d %d D S\n", ixl, iyl, -ixl, -iyl);
+
+	PSL_command(PSL, "U\n");						/* grestore -- pops clip and CTM */
+	PSL_comment(PSL, "PSL_plotline_clipped_by_textbox end\n");
+
+	PSL->current.fontsize = saved_fontsize;
 	return (PSL_NO_ERROR);
 }
 
@@ -4075,7 +4186,8 @@ int PSL_setfill (struct PSL_CTRL *PSL, double rgb[], int outline) {
 	}
 	else if (PSL_eq (rgb[3], 0.0) && !PSL_eq (PSL->current.rgb[PSL_IS_STROKE][3], 0.0)) {
 		/* If stroke color is transparent and fill is not, explicitly set transparency for fill */
-		PSL_command (PSL, "{%s 1 1 /Normal PSL_transp} FS\n", psl_putcolor (PSL, rgb, 0));
+		PSL_command (PSL, "{%.12g %.12g /%s PSL_transp} {%s} FS\n",
+			PSL->init.transparencies[PSL_FILL_TRANSP], PSL->current.rgb[PSL_IS_STROKE][3], PSL->current.transparency_mode, psl_putcolor (PSL, rgb, 0));
 		PSL_rgb_copy (PSL->current.rgb[PSL_IS_FILL], rgb);
 	}
 	else {	/* Set new r/g/b fill, after possibly changing fill transparency */
@@ -4280,6 +4392,18 @@ int PSL_plotlatexeps (struct PSL_CTRL *PSL, double x, double y, double xsize, do
    return (PSL_NO_ERROR);
 }
 
+#ifdef PSL_EXACT_LINE
+
+static double psl_x (struct PSL_CTRL *PSL, double x) {
+	/* Convert user x to PS floating point coordinate */
+	return (x * PSL->internal.x2ix);
+}
+
+static double psl_y (struct PSL_CTRL *PSL, double y) {
+	/* Convert user y to PS floating point coordinate */
+	return (y * PSL->internal.y2iy);
+}
+
 int PSL_plotline (struct PSL_CTRL *PSL, double *x, double *y, int n, int type) {
 	/* Plot a (portion of a) line. This can be a line from start to finish, or a portion of it, depending
 	 * on the type argument. Optionally, the line can be stroked (using the current pen), closed.
@@ -4290,38 +4414,25 @@ int PSL_plotline (struct PSL_CTRL *PSL, double *x, double *y, int n, int type) {
 	 * PSL_CLOSE  (8) : Close the line back to the beginning of this segment, this is done automatically
 	 *                  when the first and last point are the same and PSL_MOVE is on.
 	 */
-	int i, i0 = 0, *ix = NULL, *iy = NULL;
+	int i, i0 = 0;
 
 	if (n < 1) return (PSL_NO_ERROR);	/* Cannot deal with empty lines */
 	if (type < 0) type = -type;		/* Should be obsolete now */
-
-	/* First remove unnecessary points that have zero curvature */
-
-	ix = PSL_memory (PSL, NULL, n, int);
-	iy = PSL_memory (PSL, NULL, n, int);
-
-	n = psl_shorten_path (PSL, x, y, n, ix, iy, 0);
 
 	/* If first and last point are the same, close the polygon and drop the last point
 	 * (but only if this segment runs start to finish)
 	 */
 
-	if (n > 1 && (type & PSL_MOVE) && (ix[0] == ix[n-1] && iy[0] == iy[n-1]) && (type & PSL_CLOSE_INTERIOR) == 0) {n--; type |= PSL_CLOSE;}
+	if (n > 1 && (type & PSL_MOVE) && (x[0] == x[n-1] && y[0] == y[n-1]) && (type & PSL_CLOSE_INTERIOR) == 0) {n--; type |= PSL_CLOSE;}
 
 	if (type & PSL_MOVE) {
-		PSL_command (PSL, "%d %d M\n", ix[0], iy[0]);
-		PSL->internal.ix = ix[0];
-		PSL->internal.iy = iy[0];
+		PSL_command (PSL, "%.12lg %.12lg M\n", psl_x (PSL, x[0]), psl_y (PSL, y[0]));
 		i0++;
 		if (n == 1) PSL_command (PSL, "0 0 D\n");	/* Add at least a zero length line */
 	}
 
-	for (i = i0; i < n; i++) {
-		if (ix[i] != PSL->internal.ix || iy[i] != PSL->internal.iy)
-			PSL_command (PSL, "%d %d D\n", ix[i] - PSL->internal.ix, iy[i] - PSL->internal.iy);
-		PSL->internal.ix = ix[i];
-		PSL->internal.iy = iy[i];
-	}
+	for (i = i0; i < n; i++)
+		PSL_command (PSL, "%.12lg %.12lg L\n", psl_x (PSL, x[i]), psl_y (PSL, y[i]));
 	if (type & PSL_STROKE && type & PSL_CLOSE)
 		PSL_command (PSL, "P S\n");	/* Close and stroke the path */
 	else if (type & PSL_CLOSE)
@@ -4329,11 +4440,64 @@ int PSL_plotline (struct PSL_CTRL *PSL, double *x, double *y, int n, int type) {
 	else if (type & PSL_STROKE)
 		PSL_command (PSL, "S\n");	/* Stroke the path */
 
-	PSL_free (ix);
-	PSL_free (iy);
-
 	return (PSL_NO_ERROR);
 }
+#else
+int PSL_plotline (struct PSL_CTRL *PSL, double *x, double *y, int n, int type) {
+    /* Plot a (portion of a) line. This can be a line from start to finish, or a portion of it, depending
+     * on the type argument. Optionally, the line can be stroked (using the current pen), closed.
+     * Type is a combination of the following:
+     * PSL_DRAW   (0) : Draw a line segment
+     * PSL_MOVE   (1) : Move to a new anchor point (x[0], y[0]) first
+     * PSL_STROKE (2) : Stroke the line
+     * PSL_CLOSE  (8) : Close the line back to the beginning of this segment, this is done automatically
+     *                  when the first and last point are the same and PSL_MOVE is on.
+     */
+    int i, i0 = 0, *ix = NULL, *iy = NULL;
+
+    if (n < 1) return (PSL_NO_ERROR);   /* Cannot deal with empty lines */
+    if (type < 0) type = -type;     /* Should be obsolete now */
+
+    /* First remove unnecessary points that have zero curvature */
+
+    ix = PSL_memory (PSL, NULL, n, int);
+    iy = PSL_memory (PSL, NULL, n, int);
+
+    n = psl_convert_path (PSL, x, y, n, ix, iy, PSL_SHORTEN_PATH);
+
+    /* If first and last point are the same, close the polygon and drop the last point
+     * (but only if this segment runs start to finish)
+     */
+
+    if (n > 1 && (type & PSL_MOVE) && (ix[0] == ix[n-1] && iy[0] == iy[n-1]) && (type & PSL_CLOSE_INTERIOR) == 0) {n--; type |= PSL_CLOSE;}
+
+    if (type & PSL_MOVE) {
+        PSL_command (PSL, "%d %d M\n", ix[0], iy[0]);
+        PSL->internal.ix = ix[0];
+        PSL->internal.iy = iy[0];
+        i0++;
+        if (n == 1) PSL_command (PSL, "0 0 D\n");   /* Add at least a zero length line */
+    }
+
+    for (i = i0; i < n; i++) {
+        if (ix[i] != PSL->internal.ix || iy[i] != PSL->internal.iy)
+            PSL_command (PSL, "%d %d D\n", ix[i] - PSL->internal.ix, iy[i] - PSL->internal.iy);
+        PSL->internal.ix = ix[i];
+        PSL->internal.iy = iy[i];
+    }
+    if (type & PSL_STROKE && type & PSL_CLOSE)
+        PSL_command (PSL, "P S\n"); /* Close and stroke the path */
+    else if (type & PSL_CLOSE)
+        PSL_command (PSL, "P\n");   /* Close the path */
+    else if (type & PSL_STROKE)
+        PSL_command (PSL, "S\n");   /* Stroke the path */
+
+    PSL_free (ix);
+    PSL_free (iy);
+
+    return (PSL_NO_ERROR);
+}
+#endif
 
 int PSL_plotcurve (struct PSL_CTRL *PSL, double *x, double *y, int n, int type) {
 	/* Plot a (portion of a) Bezier curve. This can be a line from start to finish, or a portion of it, depending
@@ -4359,7 +4523,7 @@ int PSL_plotcurve (struct PSL_CTRL *PSL, double *x, double *y, int n, int type) 
 	ix = PSL_memory (PSL, NULL, n, int);
 	iy = PSL_memory (PSL, NULL, n, int);
 
-	n = psl_shorten_path (PSL, x, y, n, ix, iy, 1);
+	n = psl_convert_path (PSL, x, y, n, ix, iy, PSL_CONVERT_PATH);
 
 	/* If first and last point are the same, close the polygon and drop the last point
 	 * (but only if this segment runs start to finish)
@@ -4491,17 +4655,17 @@ int PSL_endplot (struct PSL_CTRL *PSL, int lastpage) {
 	return (PSL_NO_ERROR);
 }
 
-char * PSL_getplot (struct PSL_CTRL *PSL) {
+char *PSL_getplot(struct PSL_CTRL *PSL) {
 	/* Simply pass the plot back to caller  */
 	if (!PSL->internal.memory) {
-		PSL_message (PSL, PSL_MSG_ERROR, "Error: Cannot get a plot since memory output was not activated!\n");
-		return (NULL);
+		PSL_message(PSL, PSL_MSG_ERROR, "Error: Cannot get a plot since memory output was not activated!\n");
+		return NULL;
 	}
 	if (!PSL->internal.buffer) {
-		PSL_message (PSL, PSL_MSG_ERROR, "Error: No plot in memory available!\n");
-		return (NULL);
+		PSL_message(PSL, PSL_MSG_ERROR, "Error: No plot in memory available!\n");
+		return NULL;
 	}
-	return (PSL->internal.buffer);
+	return PSL->internal.buffer;
 }
 
 int PSL_beginplot (struct PSL_CTRL *PSL, FILE *fp, int orientation, int overlay, int color_mode, char origin[], double offset[], double page_size[], char *title, int font_no[]) {
@@ -4651,9 +4815,11 @@ int PSL_beginplot (struct PSL_CTRL *PSL, FILE *fp, int orientation, int overlay,
 		PSL_command (PSL, "PSLevel 1 gt { << /WhiteIsOpaque true >> setpagedevice } if\n");
 		if (manual_feed)	/* Manual media feed requested */
 			PSL_command (PSL, "PSLevel 1 gt { << /ManualFeed true >> setpagedevice } if\n");
-		else if (PSL->internal.p_width > 0.0 && PSL->internal.p_height > 0.0)	/* Specific media selected */
-			PSL_command (PSL, "PSLevel 1 gt { << /PageSize [%.12g %.12g] /ImagingBBox null >> setpagedevice } if\n",
-			             PSL->internal.p_width, PSL->internal.p_height);
+		else if (PSL->internal.p_width > 0.0 && PSL->internal.p_height > 0.0) {	/* Specific media selected */
+			PSL_command (PSL, "PSLevel 1 gt { << /PageSize [%.12g %.12g] /ImagingBBox null >> setpagedevice } if        \n",
+			             PSL->internal.p_width, PSL->internal.p_height);	/* Leave some space for eventual PageSize change by psconvert */
+			PSL_command (PSL, "%%                                       \n");	/* Space for eventual rot/translation by psconvert*/
+		}
 		if (PSL->init.copies > 1) PSL_command (PSL, "/#copies %d def\n", PSL->init.copies);
 		PSL_command (PSL, "%%%%EndSetup\n\n");
 
@@ -4752,6 +4918,196 @@ int PSL_plotpolygon (struct PSL_CTRL *PSL, double *x, double *y, int n) {
 		PSL_plotline (PSL, x, y, n, PSL_MOVE);	/* No stroke or close path yet; see next line */
 		PSL_command (PSL, "FO\n");		/* Close polygon and stroke/fill as set by PSL_setfill */
 	}
+
+	return (PSL_NO_ERROR);
+}
+
+int PSL_plotgradienttriangle(struct PSL_CTRL *PSL, double *x, double *y, double *rgb, int steps) {
+	/* Draw triangle with smooth vertex color gradient using barycentric interpolation
+	 * x, y: arrays of 3 coordinates (in inches, will be converted to points)
+	 * rgb: array of 9 values [r1 g1 b1 r2 g2 b2 r3 g3 b3], each 0.0-1.0
+	 * steps: number of subdivisions (higher = smoother, slower)
+	 * 
+	 * Writen by Claude.ai
+	 */
+
+	int i, j;
+	double s, t;
+	double s1, t1, s2, t2, s3, t3, s4, t4;
+	double u1, v1, w1, u2, v2, w2, u3, v3, w3, u4, v4, w4;
+	double px1, py1, px2, py2, px3, py3, px4, py4;
+	double pr1, pg1, pb1, pr2, pg2, pb2, pr3, pg3, pb3, pr4, pg4, pb4;
+	double step_inv;
+	double x_pts[3], y_pts[3];
+
+	if (steps <= 0) steps = 50;   /* Default quality */
+	if (steps > 200) steps = 200; /* Limit maximum */
+
+	/* Convert inches to points */
+	for (i = 0; i < 3; i++) {
+		x_pts[i] = x[i] * PSL->internal.dpu;
+		y_pts[i] = y[i] * PSL->internal.dpu;
+	}
+
+	step_inv = 1.0 / steps;
+
+	PSL_comment(PSL, "Begin gradient triangle\n");
+	PSL_command(PSL, "gsave\n");
+
+	/* Subdivide triangle into micro-triangles using barycentric coordinates */
+	for (i = 0; i < steps; i++) {
+		t = i * step_inv;
+		for (j = 0; j < steps; j++) {
+			s = j * step_inv;
+
+			/* Barycentric coordinates for 4 corners of sub-quad */
+			s1 = s;            t1 = t;
+			s2 = s + step_inv; t2 = t;
+			s3 = s + step_inv; t3 = t + step_inv;
+			s4 = s;            t4 = t + step_inv;
+
+			/* Check if first corner is inside triangle */
+			if (s1 + t1 <= 1.0) {
+				u1 = 1.0 - s1 - t1;
+				v1 = s1;
+				w1 = t1;
+
+				/* Interpolate position */
+				px1 = u1 * x_pts[0] + v1 * x_pts[1] + w1 * x_pts[2];
+				py1 = u1 * y_pts[0] + v1 * y_pts[1] + w1 * y_pts[2];
+
+				/* Interpolate color */
+				pr1 = u1 * rgb[0] + v1 * rgb[3] + w1 * rgb[6];
+				pg1 = u1 * rgb[1] + v1 * rgb[4] + w1 * rgb[7];
+				pb1 = u1 * rgb[2] + v1 * rgb[5] + w1 * rgb[8];
+
+				/* Check second corner */
+				if (s2 + t2 <= 1.0) {
+					u2 = 1.0 - s2 - t2;
+					v2 = s2;
+					w2 = t2;
+
+					px2 = u2 * x_pts[0] + v2 * x_pts[1] + w2 * x_pts[2];
+					py2 = u2 * y_pts[0] + v2 * y_pts[1] + w2 * y_pts[2];
+					pr2 = u2 * rgb[0] + v2 * rgb[3] + w2 * rgb[6];
+					pg2 = u2 * rgb[1] + v2 * rgb[4] + w2 * rgb[7];
+					pb2 = u2 * rgb[2] + v2 * rgb[5] + w2 * rgb[8];
+
+					/* Check fourth corner */
+					if (s4 + t4 <= 1.0) {
+						u4 = 1.0 - s4 - t4;
+						v4 = s4;
+						w4 = t4;
+
+						px4 = u4 * x_pts[0] + v4 * x_pts[1] + w4 * x_pts[2];
+						py4 = u4 * y_pts[0] + v4 * y_pts[1] + w4 * y_pts[2];
+						pr4 = u4 * rgb[0] + v4 * rgb[3] + w4 * rgb[6];
+						pg4 = u4 * rgb[1] + v4 * rgb[4] + w4 * rgb[7];
+						pb4 = u4 * rgb[2] + v4 * rgb[5] + w4 * rgb[8];
+
+						/* Draw first micro-triangle: p1-p2-p4 */
+						PSL_command(PSL, "%.6f %.6f %.6f C\n",
+							(pr1 + pr2 + pr4) / 3.0,
+							(pg1 + pg2 + pg4) / 3.0,
+							(pb1 + pb2 + pb4) / 3.0);
+						PSL_command(PSL, "N %.4f %.4f M %.4f %.4f L %.4f %.4f L P F\n", px1, py1, px2, py2, px4, py4);
+					}
+
+					/* Check third corner for second micro-triangle */
+					if (s3 + t3 <= 1.0) {
+						u3 = 1.0 - s3 - t3;
+						v3 = s3;
+						w3 = t3;
+
+						px3 = u3 * x_pts[0] + v3 * x_pts[1] + w3 * x_pts[2];
+						py3 = u3 * y_pts[0] + v3 * y_pts[1] + w3 * y_pts[2];
+						pr3 = u3 * rgb[0] + v3 * rgb[3] + w3 * rgb[6];
+						pg3 = u3 * rgb[1] + v3 * rgb[4] + w3 * rgb[7];
+						pb3 = u3 * rgb[2] + v3 * rgb[5] + w3 * rgb[8];
+
+						if (s4 + t4 <= 1.0) {  /* Already computed p4 */
+							/* Draw second micro-triangle: p2-p3-p4 */
+							PSL_command(PSL, "%.6f %.6f %.6f C\n",
+								(pr2 + pr3 + pr4) / 3.0,
+								(pg2 + pg3 + pg4) / 3.0,
+								(pb2 + pb3 + pb4) / 3.0);
+							PSL_command(PSL, "N %.4f %.4f M %.4f %.4f L %.4f %.4f L P F\n", px2, py2, px3, py3, px4, py4);
+						}
+					}
+				}
+			}
+		}
+	}
+
+	PSL_command(PSL, "grestore\n");
+	PSL_comment(PSL, "End gradient triangle\n");
+
+	return (PSL_NO_ERROR);
+}
+
+int PSL_plotgradienttriangle_gouraud(struct PSL_CTRL *PSL, double *x, double *y, double *rgb) {
+	/* Draw triangle with smooth Gouraud shading using PostScript Type 4 shading
+	 * x, y: arrays of 3 coordinates (in inches, will be converted to points)
+	 * rgb: array of 9 values [r1 g1 b1 r2 g2 b2 r3 g3 b3], each 0.0-1.0
+	 * This uses PostScript Level 2/3 shading for perfectly smooth gradients
+	 *
+	 * Optimized: /GT procedure with proper variable handling
+	 * Written by Claude.ai
+	 */
+
+	int i;
+	double x_pts[3], y_pts[3];
+
+	/* Convert inches to points */
+	for (i = 0; i < 3; i++) {
+		x_pts[i] = x[i] * PSL->internal.dpu;
+		y_pts[i] = y[i] * PSL->internal.dpu;
+	}
+
+	/* Define Gouraud Triangle procedure once */
+	static int gt_defined = 0;
+	if (!gt_defined) {
+		PSL_command(PSL, "/GT {\n");
+		PSL_command(PSL, "  /data exch def /ymax exch def /ymin exch def /xmax exch def /xmin exch def\n");
+		PSL_command(PSL, "  << /ShadingType 4 /ColorSpace /DeviceRGB\n");
+		PSL_command(PSL, "     /BitsPerCoordinate 16 /BitsPerComponent 8 /BitsPerFlag 8\n");
+		PSL_command(PSL, "     /Decode [xmin xmax ymin ymax 0 1 0 1 0 1]\n");
+		PSL_command(PSL, "     /DataSource data >>\n");
+		PSL_command(PSL, "  shfill\n");
+		PSL_command(PSL, "} def\n");
+		gt_defined = 1;
+	}
+
+	PSL_comment(PSL, "Begin Gouraud shaded triangle\n");
+	PSL_command(PSL, "gsave\n");
+	PSL_command(PSL, "N %.4f %.4f M %.4f %.4f L %.4f %.4f L closepath clip\n",
+		x_pts[0], y_pts[0], x_pts[1], y_pts[1], x_pts[2], y_pts[2]);
+
+	/* Find bounding box */
+	double xmin = x_pts[0], xmax = x_pts[0], ymin = y_pts[0], ymax = y_pts[0];
+	for (i = 1; i < 3; i++) {
+		if (x_pts[i] < xmin) xmin = x_pts[i];
+		if (x_pts[i] > xmax) xmax = x_pts[i];
+		if (y_pts[i] < ymin) ymin = y_pts[i];
+		if (y_pts[i] > ymax) ymax = y_pts[i];
+	}
+
+	/* Push parameters onto stack: xmin xmax ymin ymax <data> */
+	PSL_command(PSL, "%.4f %.4f %.4f %.4f <", xmin, xmax, ymin, ymax);
+	for (i = 0; i < 3; i++) {
+		unsigned int flag = 0;
+		unsigned int x_scaled = (unsigned int)((x_pts[i] - xmin) / (xmax - xmin) * 65535.0 + 0.5);
+		unsigned int y_scaled = (unsigned int)((y_pts[i] - ymin) / (ymax - ymin) * 65535.0 + 0.5);
+		unsigned int r = (unsigned int)(rgb[i*3 + 0] * 255.0 + 0.5);
+		unsigned int g = (unsigned int)(rgb[i*3 + 1] * 255.0 + 0.5);
+		unsigned int b = (unsigned int)(rgb[i*3 + 2] * 255.0 + 0.5);
+
+		PSL_command(PSL, " %02X%04X%04X%02X%02X%02X", flag, x_scaled, y_scaled, r, g, b);
+	}
+	PSL_command(PSL, "> GT\n");
+
+	PSL_command(PSL, "grestore\n");
+	PSL_comment(PSL, "End Gouraud shaded triangle\n");
 
 	return (PSL_NO_ERROR);
 }
@@ -4871,23 +5227,66 @@ int PSL_setcolor (struct PSL_CTRL *PSL, double rgb[], int mode) {
 	 * rgb[0] = -1: ignore. Do not change pen color. Leave untouched.
 	 * rgb[0] >= 0: rgb is the color with R G B in 0-1 range.
 	 */
+	int is_font = 0;
 	if (!rgb) return (PSL_NO_ERROR);	/* NULL args to be ignored */
 	if (mode == PSL_IS_FONT) {	/* Internally update font color but set stroke color */
 		PSL_rgb_copy (PSL->current.rgb[mode], rgb);
 		mode = PSL_IS_STROKE;
+		is_font = 1;	/* Remember this color paints text, which is filled, not stroked */
 	}
 	if (PSL_eq (rgb[0], -2.0) || PSL_eq (rgb[0], -1.0)) return (PSL_NO_ERROR);	/* Settings to be ignored */
 	if (PSL_same_rgb (rgb, PSL->current.rgb[mode])) return (PSL_NO_ERROR);	/* Same color as already set */
 
-	/* Because psl_putcolor does not set transparency if it is 0%, we reset it here when needed */
-	if (PSL_eq (rgb[3], 0.0) && !PSL_eq (PSL->current.rgb[mode][3], 0.0)) PSL_command (PSL, "1 1 /Normal PSL_transp ");
+	/* Guard: When setting stroke or fill with transparency, preserve the other channel's transparency */
+	if (!PSL_eq (rgb[3], 0.0) && (mode == PSL_IS_STROKE || mode == PSL_IS_FILL)) {
+		double transp[2], rgb_copy[4];
+		/* Preserve current transparencies and update only the relevant channel.
+		 * Text glyphs are painted as filled shapes even though their color is
+		 * tracked in the stroke slot, so font transparency must land on the
+		 * FILL channel, not the PEN channel, or it has no visible effect. */
+		if (is_font) {
+			transp[PSL_FILL_TRANSP] = rgb[3];
+			transp[PSL_PEN_TRANSP]  = PSL->current.rgb[PSL_IS_STROKE][3];
+		}
+		else {
+			transp[PSL_FILL_TRANSP] = (mode == PSL_IS_FILL) ? rgb[3] : PSL->current.rgb[PSL_IS_FILL][3];
+			transp[PSL_PEN_TRANSP]  = (mode == PSL_IS_STROKE) ? rgb[3] : PSL->current.rgb[PSL_IS_STROKE][3];
+		}
+		/* Set transparency explicitly for both channels */
+		PSL_command (PSL, "%.12g %.12g /%s PSL_transp\n", 1.0 - transp[PSL_FILL_TRANSP], 1.0 - transp[PSL_PEN_TRANSP], PSL->current.transparency_mode);
+		/* Make a copy with transparency zeroed out for psl_putcolor to avoid double-setting */
+		PSL_rgb_copy (rgb_copy, rgb);
+		rgb_copy[3] = 0.0;
+		PSL_command (PSL, "%s\n", psl_putcolor (PSL, rgb_copy, 0));
+	}
+	else {
+		/* Because psl_putcolor does not set transparency if it is 0%, we reset it here when needed */
+		if (PSL_eq (rgb[3], 0.0) && !PSL_eq (PSL->current.rgb[mode][3], 0.0))
+			PSL_command (PSL, "%.12g %.12g /Normal PSL_transp ", PSL->init.transparencies[PSL_FILL_TRANSP], PSL->init.transparencies[PSL_PEN_TRANSP]);
 
-	/* Then, finally, set the color using psl_putcolor */
-	PSL_command (PSL, "%s\n", psl_putcolor (PSL, rgb, 0));
+		/* Then, finally, set the color using psl_putcolor */
+		PSL_command (PSL, "%s\n", psl_putcolor (PSL, rgb, 0));
+	}
 
 	/* Update the current stroke/fill color information */
 
 	PSL_rgb_copy (PSL->current.rgb[mode], rgb);
+	return (PSL_NO_ERROR);
+}
+
+int PSL_setrgb (struct PSL_CTRL *PSL, double rgb[]) {
+	/* Set the fill (PSL_IS_FILL) r/g/b color
+	 * rgb[0] >= 0: rgb is the color with R G B in 0-1 range.
+	 */
+	if (!rgb) return (PSL_NO_ERROR);	/* NULL args to be ignored */
+	if (PSL_same_rgb (rgb, PSL->current.rgb[PSL_IS_FILL])) return (PSL_NO_ERROR);	/* Same color as already set */
+
+	/* Then, finally, set the color using psl_putcolor */
+	PSL_command (PSL, "{%s} FS\n", psl_putcolor (PSL, rgb, 0));
+
+	/* Update the current stroke/fill color information */
+
+	PSL_rgb_copy (PSL->current.rgb[PSL_IS_FILL], rgb);
 	return (PSL_NO_ERROR);
 }
 
@@ -5325,7 +5724,7 @@ int PSL_plottext (struct PSL_CTRL *PSL, double x, double y, double fontsize, cha
 
 	char *piece = NULL, *piece2 = NULL, *ptr = NULL, *string = NULL, previous[BUFSIZ] = {""}, *plast = NULL;
 	/* PS strings to be used dependent on "mode" */
-	const char *op[4] = {"Z", "false charpath fs", "false charpath fs", "false charpath V S U fs"};
+	const char *op[4] = {"Z", "false charpath fs", "false charpath fs", "false charpath V S U fs currentpoint N M"};
 	/* PS strings to be used dependent on "justify". Empty strings added for unused values. */
 	const char *justcmd[12] = {"", "bl ", "bc ", "br ", "", "ml ", "mc ", "mr ", "", "tl ", "tc ", "tr "};
 	/* PS strings to be used dependent on "justify%4". Empty string added for unused value. */
@@ -5963,7 +6362,7 @@ int PSL_loadeps (struct PSL_CTRL *PSL, char *file, struct imageinfo *h, unsigned
 	unsigned char *buffer = NULL;
 	FILE *fp = NULL;
 
-	/* Open PostScript file */
+	/* Open PostScript file in binary mode; see below for reverting on Windows for gets reads */
 
 	if ((fp = fopen (file, "rb")) == NULL) {
 		PSL_message (PSL, PSL_MSG_ERROR, "Error: Cannot open image file %s!\n", file);
@@ -5988,6 +6387,14 @@ int PSL_loadeps (struct PSL_CTRL *PSL, char *file, struct imageinfo *h, unsigned
 	h->magic = (int)value;
 
 	/* Scan for BoundingBox */
+
+#ifdef _WIN32
+	/* Reset I/O to text mode since we are using gets in psl_get_boundingbox */
+	if ( _setmode(_fileno(stdin), _O_TEXT) == -1 ) {
+		PSL_message (PSL, PSL_MSG_WARNING, "Could not set text mode for %s.\n", file);
+		return 0;
+	}
+#endif
 
 	psl_get_boundingbox (PSL, fp, &llx, &lly, &trx, &try, &h->llx, &h->lly, &h->trx, &h->try);
 

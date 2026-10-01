@@ -20,8 +20,8 @@ Synopsis (begin mode)
 
 **gmt inset begin**
 |-D|\ *inset-box*
+[ |-C|\ [*side*]\ *clearance* ]
 [ |-F|\ *box* ]
-[ |-M|\ *margins* ]
 [ |-N| ]
 [ |SYN_OPT-R| ]
 [ |-J|\ *parameters* ]
@@ -48,10 +48,13 @@ Required Arguments (begin mode)
 
 .. _-D:
 
-**-D**\ *xmin/xmax/ymin/ymax*\ [**+r**][**+u**\ *unit*]] \| **-D**\ [**g**\|\ **j**\|\ **J**\|\ **n**\|\ **x**]\ *refpoint*\ **+w**\ *width*\ [/*height*][**+j**\ *justify*][**+o**\ *dx*\ [/*dy*]]
+**-D**\ *xmin/xmax/ymin/ymax*\ [**+r**][**+u**\ *unit*]] \| **-D**\ [**g**\|\ **j**\|\ **J**\|\ **n**\|\ **x**]\ [*refpoint*]\ **+w**\ *width*\ [/*height*][**+j**\ *justify*][**+o**\ *dx*\ [/*dy*]]
     Define the map inset rectangle on the map.  Specify the rectangle in one of three ways:
 
     .. include:: explain_refpoint.rst_
+
+    If *refpoint* is omitted, the map inset is placed by default in the upper-right corner of the map
+    (using **jTR**).
 
     Alternatively, Give *west/east/south/north* of geographic rectangle bounded by parallels
     and meridians; append **+r** if the coordinates instead are the lower left and
@@ -62,10 +65,20 @@ Required Arguments (begin mode)
     can be changed by appending **+j** followed by a 2-char justification code *justify* (see :doc:`text`).
     **Note**: If **-Dj** is used then *justify* defaults to the same as *refpoint*,
     if **-DJ** is used then *justify* defaults to the mirror opposite of *refpoint*.
-    Specify inset box attributes via the **-F** option [outline only].
+    Specify inset box attributes via the |-F| option [outline only].
 
 Optional Arguments (begin mode)
 -------------------------------
+
+.. _-C:
+
+**-C**\ [*side*]\ *clearance*
+    Reserve a space of dimension *clearance* between the actual inset plot area and the given inset box on the specified
+    side, using *side* values from **w**, **e**, **s**, or **n**, or **x** for both **w** and **e**
+    or **y** for both **s** and **n**.  No *side* means all sides. The option is repeatable to set aside space
+    on more than one side.  Alternatively, if all sides are to be set you can also give a pair of values separated by slashes
+    (for setting separate horizontal and vertical margins), or the full set of four separate margins. Such space
+    will be left untouched by the inset map plotting.  Append units as desired [Default is set by :term:`PROJ_LENGTH_UNIT`].
 
 .. _-F:
 
@@ -83,19 +96,10 @@ Optional Arguments (begin mode)
     :start-after: **Syntax**
     :end-before: **Description**
 
-.. _-M:
-
-**-M**\ *margins*
-    This is clearance that is added around the inside of the inset.  Plotting will take place
-    within the inner region only. The margins can be a single value, a pair of values separated by slashes
-    (for setting separate horizontal and vertical margins), or the full set of four margins (for setting
-    separate left, right, bottom, and top margins) [no margins]. Append units as desired [Default is set
-    by :term:`PROJ_LENGTH_UNIT`].
-
 .. _-N:
 
 **-N**
-    Do NOT clip features extruding outside map inset boundaries [Default will clip].
+    Do **not** clip features extruding outside map inset boundaries [Default will clip].
 
 .. |Add_-R| replace:: This is useful when you want the inset **-R -J** to also determine the inset size. |Add_-R_links|
 .. include:: explain_-R.rst_
@@ -135,16 +139,31 @@ Examples
 
 To make a simple basemap plot called inset.pdf that demonstrates the inset module, try
 
-   ::
+::
 
-    gmt begin inset pdf
-      gmt basemap -R0/40/20/60 -JM6.5i -Bafg -B+glightgreen
-      gmt inset begin -DjTR+w2.5i+o0.2i -F+gpink+p0.5p -M0.25i
-        gmt basemap -Rg -JA20/20/ -Bafg
-        gmt text -F+f18p+cTR+tINSET -Dj-0.15i -N
-      gmt inset end
-      gmt text -F+f18p+cBL+tMAP -Dj0.2i
-    gmt end
+  gmt begin inset pdf
+    gmt basemap -R0/40/20/60 -JM6.5i -Bafg -B+glightgreen
+    gmt inset begin -DjTR+w2.5i+o0.2i -F+gpink+p0.5p -C0.25i
+      gmt basemap -Rg -JA20/20/ -Bafg
+      gmt text -F+f18p+cTR+tINSET -Dj-0.15i -N
+    gmt inset end
+    gmt text -F+f18p+cBL+tMAP -Dj0.2i
+  gmt end
+
+
+This example creates a main map of the Dominican Republic (DO) and adds an inset 
+showing the broader Caribbean region (IHO27). The inset size is automatically 
+determined from the projection specified in inset begin (-JM5c) together with the 
+region (-RIHO27), preserving the map aspect ratio without requiring explicit inset dimensions.
+
+::
+
+  gmt begin inset pdf
+	gmt coast -RDO+R1 -JM15c -Baf -Gbrown -Sazure1 -N1 -EDO+gbisque
+	gmt inset begin -DjTR+o0.2c -F+gwhite+p1p+c0.1c+s -JM5c -RIHO27
+		gmt coast -Gbrown -B0 -EDO+gbisque
+	gmt inset end
+  gmt end
 
 See Also
 --------

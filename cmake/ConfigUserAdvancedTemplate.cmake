@@ -1,6 +1,5 @@
 #
-#
-# Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+# Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
 # See LICENSE.TXT file for copying and redistribution conditions.
 #
 # This program is free software; you can redistribute it and/or modify it
@@ -34,6 +33,8 @@
 # are true.  Thus it does not matter whether you use TRUE and FALSE, ON and
 # OFF, or YES and NO for your booleans.
 
+# set (CMAKE_OSX_DEPLOYMENT_TARGET "12.3")
+
 ##
 ## Section 1: Installation paths
 ##
@@ -47,8 +48,7 @@
 # Make executables relocatable on supported platforms (relative RPATH) [FALSE]:
 #set (GMT_INSTALL_RELOCATABLE TRUE)
 
-# Exclude optional GDAL, GEOS ,PCRE, PCRE2, FFTW3, LAPACK, BLAS, ZLIB dependencies even if you have them installed [FALSE]
-#set (GMT_EXCLUDE_GDAL TRUE)
+# Exclude optional GEOS, PCRE, PCRE2, FFTW3, LAPACK, BLAS, ZLIB dependencies even if you have them installed [FALSE]
 #set (GMT_EXCLUDE_GEOS TRUE)
 #set (GMT_EXCLUDE_PCRE TRUE)
 #set (GMT_EXCLUDE_PCRE2 TRUE)
@@ -127,9 +127,13 @@
 # Set location of CURL (can be root directory or path to header file) [auto]:
 #set (CURL_ROOT "curl_install_prefix")
 
+# Set location of OpenMP (can be root directory or path to header file) [auto]:
+# CMake sometimes may fail to find the OpenMP library (libomp) on macOS.
+#set (OpenMP_ROOT $(brew --prefix)/opt/libomp/)
+
 # Set location of GLIB component gthread [auto].  This is an optional (and
-# experimental) option which you need to enable:
-#set (GMT_USE_THREADS TRUE)
+# experimental) option which you need to enable or disable:
+set (GMT_USE_THREADS TRUE)
 # If pkg-config is not installed (e.g. on Windows) you need to specify these:
 #set (GLIB_INCLUDE_DIR c:/path/to/glib-dev/include/glib-2.0)
 #set (GLIB_LIBRARIES c:/path/to/glib-dev/lib/glib-2.0.lib)
@@ -148,7 +152,7 @@
 #set (LICENSE_RESTRICTED GPL)
 
 # Allow building of OpenMP if compiler supports it
-#set (GMT_ENABLE_OPENMP TRUE)
+set (GMT_ENABLE_OPENMP TRUE)
 
 # Configure default units (possible values are SI and US) [SI]:
 #set (UNITS "US")
@@ -200,10 +204,13 @@
 # Uncomment the following line to enable running low-level C tests of the API
 #set (DO_API_TESTS ON)
 
-# Uncomment the following line if you need to run the full tests suite using
-# the gmtserver "test" distribution instead of the default server.
-# You may wish to rename existing cache and server dirs so you can restore afterwards
-# set (GMT_DATA_SERVER "test")
+# Uncomment the following line to enable running tests of the GMT supplements
+#set (DO_SUPPLEMENT_TESTS ON)
+
+# Uncomment the following line if you need to override the default data server
+# for tests. When DO_TESTS is ON, the default "remotedata.generic-mapping-tools.org" server is changed to
+# "static" automatically unless you set GMT_DATA_SERVER explicitly.
+# set (GMT_DATA_SERVER "static")
 
 # List extra sub-dirs of 'src' with a CMakeLists.txt to build custom modules
 # that link against the full gmt libs. (For building codes that only need the GMT API,
@@ -216,8 +223,8 @@
 #set (GMT_RELEASE_PREFIX "release-src-prefix")
 
 # If set to false, image conversion from PS images to PNG and PDF does
-# not depend on the gmt binary target. Note: "make gmt" is then required
-# before docs_depends [TRUE].
+# not depend on the gmt binary target. It assumes that you already have the
+# gmt executable in your PATH [TRUE].
 #set (GMT_DOCS_DEPEND_ON_GMT FALSE)
 
 #
@@ -234,13 +241,18 @@
 #	add_definitions(-DDEBUG_MODERN)			# To set PPID == 0 during Xcode test
 #	message("Add Xcode definition for GMT")
 #endif()
+
+# Uncomment if you want to temporarily replace Miller projection with the "Christmas" projection.
+# add_definitions(-DCHRISTMAS)
+# Then, rebuild GMT and try the script share/tools/christmas-cube.sh
+
 # Uncomment these two statements if you are a developer debugging GMT:
 #add_definitions(-DDEBUG)
-#add_definitions(-DMEMDEBUG) # Turn on memory tracking see gmt_support.c for extra info
-#add_definitions(-DUSE_COMMON_LONG_OPTIONS) 	# Turn on testing of upcoming long-option syntax for common GMT options
-#add_definitions(-DUSE_MODULE_LONG_OPTIONS) 	# Turn on testing of upcoming long-option syntax for module options
+#add_definitions(-DMEMDEBUG) # Turn on memory tracking; see gmt_memory .c on MEMDEBUG for information
 #add_definitions(-DEXPORT_GMTLIB)				# Turn on to access normally un-exported or static gmtlib functions from external tools
 #add_definitions(-DNO_THEMES) 	                # Turn off implementation of GMT_THEME for debugging
+# Uncomment this statement if you are a developer debugging PSL and want exact line coordinates:
+#add_definitions(-DPSL_EXACT_LINE)
 
 #set (CMAKE_C_FLAGS "-Wall -Wdeclaration-after-statement ${CMAKE_C_FLAGS}") # recommended even for release build
 #set (CMAKE_C_FLAGS "-Wextra ${CMAKE_C_FLAGS}")            # extra warnings

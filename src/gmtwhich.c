@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -24,6 +24,7 @@
  */
 
 #include "gmt_dev.h"
+#include "longopt/gmtwhich_inc.h"
 
 #define THIS_MODULE_CLASSIC_NAME	"gmtwhich"
 #define THIS_MODULE_MODERN_NAME	"gmtwhich"
@@ -111,19 +112,18 @@ static int parse (struct GMT_CTRL *GMT, struct GMTWHICH_CTRL *Ctrl, struct GMT_O
 
 			case 'A':	/* Only consider readable files */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->A.active);
-				Ctrl->A.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 			case 'C':	/* Print Y or N instead of names */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->C.active);
-				Ctrl->C.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 			case 'D':	/* Want directory instead */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->D.active);
-				Ctrl->D.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 			case 'G':	/* Download file first, if required */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->G.active);
-				Ctrl->G.active = true;
 				switch (opt->arg[0]) {
 					case 'a': Ctrl->G.mode = GMT_AUTO_DIR;		break;
 					case 'c': Ctrl->G.mode = GMT_CACHE_DIR;		break;
@@ -137,7 +137,7 @@ static int parse (struct GMT_CTRL *GMT, struct GMTWHICH_CTRL *Ctrl, struct GMT_O
 				break;
 
 			default:	/* Report bad options */
-				n_errors += gmt_default_error (GMT, opt->option);
+				n_errors += gmt_default_option_error (GMT, opt);
 				break;
 		}
 	}
@@ -149,7 +149,7 @@ static int parse (struct GMT_CTRL *GMT, struct GMTWHICH_CTRL *Ctrl, struct GMT_O
 }
 
 
-GMT_LOCAL int gmtwhich_list_tiles (struct GMTAPI_CTRL *API, char *list, bool YN, struct GMT_RECORD *Out) {
+GMT_LOCAL int gmtwhich_list_tiles (struct GMTAPI_CTRL *API, char *list, unsigned int mode, bool YN, struct GMT_RECORD *Out) {
 	/* List all tiles and whether found/not found */
 	int t_data, fail;
 	uint64_t n, k, nf = 0;
@@ -158,7 +158,8 @@ GMT_LOCAL int gmtwhich_list_tiles (struct GMTAPI_CTRL *API, char *list, bool YN,
 
 	if ((t_data = gmt_get_tile_id (API, list)) == GMT_NOTSET) return GMT_RUNTIME_ERROR;
 	if ((n = gmt_read_list (API->GMT, list, &file)) == 0) return GMT_RUNTIME_ERROR;
-	snprintf (dir, PATH_MAX, "%s%s%s", API->GMT->session.USERDIR, API->remote_info[t_data].dir, API->remote_info[t_data].file);
+	if (mode == 0)	/* Not looking in local directory */
+		snprintf (dir, PATH_MAX, "%s%s%s", API->GMT->session.USERDIR, API->remote_info[t_data].dir, API->remote_info[t_data].file);
 
 	for (k = 0; k < n; k++) {
 		sprintf (path, "%s%s", dir, &file[k][1]);
@@ -196,7 +197,7 @@ GMT_LOCAL int gmtwhich_list_tiles (struct GMTAPI_CTRL *API, char *list, bool YN,
 #define Return(code) {Free_Ctrl (GMT, Ctrl); gmt_end_module (GMT, GMT_cpy); bailout (code);}
 
 EXTERN_MSC int GMT_gmtwhich (void *V_API, int mode, void *args) {
-	bool list;
+	bool list, missing = false;
 	int error = 0, fmode, k_data;
 	unsigned int first = 0;	/* Real start of filename */
 
@@ -219,7 +220,7 @@ EXTERN_MSC int GMT_gmtwhich (void *V_API, int mode, void *args) {
 
 	/* Parse the command-line arguments */
 
-	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, NULL, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
+	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, module_kw, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
 	if (GMT_Parse_Common (API, THIS_MODULE_OPTIONS, options)) Return (API->error);
 	Ctrl = New_Ctrl (GMT);	/* Allocate and initialize a new control structure */
 	if ((error = parse (GMT, Ctrl, options)) != 0) Return (error);
@@ -251,7 +252,7 @@ EXTERN_MSC int GMT_gmtwhich (void *V_API, int mode, void *args) {
 		if (Ctrl->G.active) {
 			if (list) {
 				gmt_download_tiles (API, opt->arg, Ctrl->G.mode);
-				if ((error = gmtwhich_list_tiles (API, opt->arg, Ctrl->C.active, Out)))
+				if ((error = gmtwhich_list_tiles (API, opt->arg, Ctrl->G.mode, Ctrl->C.active, Out)))
 					Return (error);
 				continue;
 			}
@@ -265,7 +266,7 @@ EXTERN_MSC int GMT_gmtwhich (void *V_API, int mode, void *args) {
 		else
 			strcpy (file, opt->arg);
 		if (list) {
-			if ((error = gmtwhich_list_tiles (API, opt->arg, Ctrl->C.active, Out)))
+			if ((error = gmtwhich_list_tiles (API, opt->arg, Ctrl->G.mode, Ctrl->C.active, Out)))
 				Return (error);
 		}
 		else if (gmt_getdatapath (GMT, &file[first], path, fmode)) {	/* Found the file */
@@ -293,6 +294,7 @@ EXTERN_MSC int GMT_gmtwhich (void *V_API, int mode, void *args) {
 				GMT_Put_Record (API, GMT_WRITE_DATA, Out);
 			}
 			GMT_Report (API, GMT_MSG_ERROR, "File %s not found!\n", &file[first]);
+			if (Ctrl->G.active) missing = true;	/* Asked to fetch it and still don't have it */
 		}
 	}
 
@@ -301,5 +303,6 @@ EXTERN_MSC int GMT_gmtwhich (void *V_API, int mode, void *args) {
 		Return (API->error);
 	}
 
-	Return (GMT_NOERROR);
+	/* -C's purpose is to report Y/N as text without erroring, so it always keeps exiting 0 */
+	Return ((missing && !Ctrl->C.active) ? GMT_FILE_NOT_FOUND : GMT_NOERROR);
 }

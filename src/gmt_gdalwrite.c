@@ -1,16 +1,16 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
- *      This program is free software; you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation; version 3 or any later version.
+ *	This program is free software; you can redistribute it and/or modify
+ *	it under the terms of the GNU Lesser General Public License as published by
+ *	the Free Software Foundation; version 3 or any later version.
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *	This program is distributed in the hope that it will be useful,
+ *	but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *	GNU Lesser General Public License for more details.
  *
  *	Contact info: www.generic-mapping-tools.org *
  *--------------------------------------------------------------------*/
@@ -31,7 +31,7 @@
  * Author:	Joaquim Luis
  * Date:	26-April-2011
  *
- * Public functions (2):
+ * A) List of exported gmt_* functions available to modules and libraries via gmt_dev.h:
  *
  *	gmt_export_image : Write an image to disk stored in an GMT_IMAGE struct
  *	gmt_gdalwrite    : Write a GDAL grid
@@ -47,7 +47,18 @@ static char *gdal_drv[N_GDAL_EXTENSIONS] = {"GTiff", "GIF", "PNG", "JPEG", "BMP"
  *----------------------------------------------------------|
  */
 
-int gmt_export_image (struct GMT_CTRL *GMT, char *fname, struct GMT_IMAGE *I) {
+GMT_LOCAL bool gmtgdalwrite_is_picture_driver (const char *format) {
+	/* True for the drivers that only make pictures.  They cannot record a georeferencing-related tag in the
+	 * file itself, so asking GDAL to store one there just litters the place with .aux.xml sidecars. */
+	static const char *picture[] = {"PNG", "JPEG", "JPG", "GIF", "BMP", "WEBP", NULL};
+	unsigned int k;
+	if (format == NULL) return (false);
+	for (k = 0; picture[k]; k++)
+		if (!strcasecmp (format, picture[k])) return (true);
+	return (false);
+}
+
+int gmt_export_image(struct GMT_CTRL *GMT, char *fname, struct GMT_IMAGE *I) {
 	/* Take the image stored in the I structure and write to file by calling gmt_gdalwrite()
 	   The image format is inferred from the image name (in *fname) file extension,
 	   or optionally by appending =<driver> to the file name, where <driver> is a
@@ -67,7 +78,7 @@ int gmt_export_image (struct GMT_CTRL *GMT, char *fname, struct GMT_IMAGE *I) {
 	}
 	*/
 
-	to_GDALW = gmt_M_memory (GMT, NULL, 1, struct GMT_GDALWRITE_CTRL);
+	if ((to_GDALW = gmt_M_memory(GMT, NULL, 1, struct GMT_GDALWRITE_CTRL)) == NULL) return GMT_NOTSET;
 	if (I->header->ProjRefWKT != NULL) {
 		to_GDALW->P.ProjRefWKT = I->header->ProjRefWKT;
 		to_GDALW->P.active = true;
@@ -93,19 +104,27 @@ int gmt_export_image (struct GMT_CTRL *GMT, char *fname, struct GMT_IMAGE *I) {
 		to_GDALW->ULx = I->header->wesn[XLO];
 		to_GDALW->ULy = I->header->wesn[YHI];
 	}
-	else {
-		to_GDALW->ULx = 1;
+	else if (I->header->wesn[XHI] > I->header->wesn[XLO] && I->header->wesn[YHI] > I->header->wesn[YLO]) {	/* Header has valid -R */
+		to_GDALW->ULx = I->header->wesn[XLO];
+		to_GDALW->ULy = I->header->wesn[YHI];
+	}
+	else {	/* Stuck with dimensions */
+		to_GDALW->ULx = 0;
 		to_GDALW->ULy = I->header->n_rows;
 	}
 
-	ext = gmt_get_ext (fname);
+	ext = gmt_get_ext(fname);
+	if (ext == NULL) {
+		GMT_Report(GMT->parent, GMT_MSG_ERROR, "MUST provide a file extension for the saving file (-G option). We need it to determine the output format.\n");
+		return GMT_NOTSET;
+	}
 	/* See if the extension if one of the well known image formats */
 	for (k = 0; to_GDALW->driver == NULL && k < N_GDAL_EXTENSIONS; k++) {
 		if (k == 0 && (!strcasecmp(ext, "tif") || !strcasecmp(ext, "tiff")))	/* Tiffs happen to have a different extension<->driver naming */
 			to_GDALW->driver = strdup(gdal_drv[k]);
 		else if (!strcasecmp(ext, "jpg"))
 			to_GDALW->driver = strdup("JPEG");	/* Jpegs too */
-		else if (!strcasecmp (ext, gdal_drv[k]))
+		else if (!strcasecmp(ext, gdal_drv[k]))
 			to_GDALW->driver = strdup(gdal_drv[k]);
 	}
 	if (to_GDALW->driver == NULL) {				/* None of those; need to give a driver */
@@ -115,21 +134,21 @@ int gmt_export_image (struct GMT_CTRL *GMT, char *fname, struct GMT_IMAGE *I) {
 			if ((c = strstr(fname, "=gd")))		/* Check if we have not a stray =gd in name*/
 				c[0] = '\0';					/* Yes, remove it too */
 		}
-		else if ((c = strchr (fname, '='))) {    /* Gave file=<format> so pass that along */
+		else if ((c = strchr(fname, '='))) {    /* Gave file=<format> so pass that along */
 			to_GDALW->driver = strdup(&c[1]);
 			c[0] = '\0';
 		}
 		else {
-			GMT_Report (GMT->parent, GMT_MSG_ERROR, "Unsupported image format. Supported formats are:\nBMP,GIF,JPG,PNG & TIF\n");
-			GMT_Report (GMT->parent, GMT_MSG_ERROR, "Alternatively, append :<driver> for a valid GDAL driver\n");
+			GMT_Report(GMT->parent, GMT_MSG_ERROR, "\".%s\" is an unsupported image format. Supported formats are:\n\tBMP,GIF,JPG,PNG & TIF\n", ext);
+			GMT_Report(GMT->parent, GMT_MSG_ERROR, "Alternatively, append :<driver> for a valid GDAL driver\n");
 			return GMT_NOTSET;
 		}
 	}
 
-	if (!strncmp (I->header->mem_layout, "TCB", 3)) {
+	if (!strncmp(I->header->mem_layout, "TCB", 3)) {
 		/* Convert TCB to TRP as well as removing the pad */
 		to_GDALW->type = strdup("uint8");
-		data = gmt_M_memory (GMT, NULL, I->header->nm * I->header->n_bands, char);
+		if ((data = gmt_M_memory (GMT, NULL, I->header->nm * I->header->n_bands, char)) == NULL) return GMT_NOTSET;
 
 		for (k = band = 0; band < I->header->n_bands; band++) {
 			b = (uint64_t)band * I->header->size;
@@ -141,27 +160,27 @@ int gmt_export_image (struct GMT_CTRL *GMT, char *fname, struct GMT_IMAGE *I) {
 			}
 		}
 		if (I->alpha) {		/* We have a transparency layer */
-			to_GDALW->alpha = gmt_M_memory (GMT, NULL, I->header->nm, char);
+			if ((to_GDALW->alpha = gmt_M_memory(GMT, NULL, I->header->nm, char)) == NULL) return GMT_NOTSET;
 			for (k = row = 0; row < I->header->n_rows; row++)
 				for (col = 0; col < I->header->n_columns; col++)
 					to_GDALW->alpha[k++] = I->alpha[(uint64_t)col * I->header->my + row + I->header->pad[GMT_YHI]];
 		}
 		free_data = true;
 	}
-	else if (!strncmp (I->header->mem_layout, "TRP", 3) || !strncmp (I->header->mem_layout, "BRP", 3)) {
-		bool is_padded = gmt_grd_pad_status (GMT, I->header, NULL);	/* Do we have a pad */
+	else if (!strncmp(I->header->mem_layout, "TRP", 3) || !strncmp(I->header->mem_layout, "BRP", 3)) {
+		bool is_padded = gmt_grd_pad_status(GMT, I->header, NULL);	/* Do we have a pad */
 		to_GDALW->type = strdup("byte");
 		if (is_padded) {	/* Must remove the pad by */
-			data = gmt_M_memory (GMT, NULL, I->header->nm * I->header->n_bands, char);
+			if ((data = gmt_M_memory(GMT, NULL, I->header->nm * I->header->n_bands, char)) == NULL) return GMT_NOTSET;
 			for (row = 0; row < I->header->n_rows; row++) {
 				ijk = (uint64_t)(((row + I->header->pad[GMT_YHI]) * I->header->mx + I->header->pad[GMT_XLO]) * I->header->n_bands);
-				gmt_M_memcpy (&data[row*I->header->n_columns*I->header->n_bands], &(I->data[ijk]), I->header->n_columns*I->header->n_bands, char);
+				gmt_M_memcpy(&data[row*I->header->n_columns*I->header->n_bands], &(I->data[ijk]), I->header->n_columns*I->header->n_bands, char);
 			}
 			if (I->alpha) {		/* We have a transparency layer */
-				to_GDALW->alpha = gmt_M_memory (GMT, NULL, I->header->nm, char);
+				if ((to_GDALW->alpha = gmt_M_memory(GMT, NULL, I->header->nm, char)) == NULL) return GMT_NOTSET;
 				for (row = 0; row < I->header->n_rows; row++) {
 					ijk = (uint64_t)((row + I->header->pad[GMT_YHI]) * I->header->mx + I->header->pad[GMT_XLO]);
-					gmt_M_memcpy (&to_GDALW->alpha[row*I->header->n_columns], &(I->alpha[ijk]), I->header->n_columns, char);
+					gmt_M_memcpy(&to_GDALW->alpha[row*I->header->n_columns], &(I->alpha[ijk]), I->header->n_columns, char);
 				}
 			}
 			if (to_GDALW->P.ProjRefPROJ4) {
@@ -178,9 +197,9 @@ int gmt_export_image (struct GMT_CTRL *GMT, char *fname, struct GMT_IMAGE *I) {
 		}
 	}
 	else {
-		GMT_Report (GMT->parent, GMT_MSG_ERROR, "%s memory layout is not supported, for now only: T(op)C(ol)B(and) or TRP & BRP\n",
-		            I->header->mem_layout);
-		gmt_M_free (GMT, to_GDALW);
+		GMT_Report(GMT->parent, GMT_MSG_ERROR, "%s memory layout is not supported, for now only: T(op)C(ol)B(and) or TRP & BRP\n",
+		           I->header->mem_layout);
+		gmt_M_free(GMT, to_GDALW);
 		return GMT_NOTSET;
 	}
 
@@ -195,7 +214,7 @@ int gmt_export_image (struct GMT_CTRL *GMT, char *fname, struct GMT_IMAGE *I) {
 		to_GDALW->C.cpt = (float *)calloc(n_colors*4, sizeof(float));
 		/* Convert the colormap to floats 0-1, still in column vector format */
 		for (k = 0; k < 3 * n_colors; k++)
-			to_GDALW->C.cpt[k] = gmt_M_is255 (I->colormap[k]);
+			to_GDALW->C.cpt[k] = gmt_M_is255(I->colormap[k]);
 
 		if (I->n_indexed_colors > 2000) {		/* Then we either have a Mx4 or a single alpha color */
 			float nc = I->n_indexed_colors / 1000.0;
@@ -208,27 +227,27 @@ int gmt_export_image (struct GMT_CTRL *GMT, char *fname, struct GMT_IMAGE *I) {
 		}
 	}
 
-	HH = gmt_get_H_hidden (I->header);
+	HH = gmt_get_H_hidden(I->header);
 	if (HH->pocket && (pch = strstr(HH->pocket, "+c")) != NULL) 		/* If we have a list of +c<options> */
 		to_GDALW->co_options = strdup(pch);				/* This memory is freed in gmt_gdalwrite */
 
 	strncpy(to_GDALW->layout, I->header->mem_layout, 4);
 	to_GDALW->data = data;
-	gmt_gdalwrite (GMT, fname, to_GDALW);
-	if (free_data) gmt_M_free (GMT, data);
+	gmt_gdalwrite(GMT, fname, to_GDALW);
+	if (free_data) gmt_M_free(GMT, data);
 	free (to_GDALW->driver);
 	free (to_GDALW->type);
-	if (free_data && to_GDALW->alpha) gmt_M_free (GMT, to_GDALW->alpha);
+	if (free_data && to_GDALW->alpha) gmt_M_free(GMT, to_GDALW->alpha);
 	if (to_GDALW->C.active) free(to_GDALW->C.cpt);
-	gmt_M_free (GMT, to_GDALW);
+	gmt_M_free(GMT, to_GDALW);
 
 	return GMT_NOERROR;
 }
 
-GMT_LOCAL int gmtgdalwrite_write_jp2 (struct GMT_CTRL *GMT, struct GMT_GDALWRITE_CTRL *prhs, GDALRasterBandH hBand, void *data, int n_rows, int n_cols) {
+GMT_LOCAL int gmtgdalwrite_write_jp2(struct GMT_CTRL *GMT, struct GMT_GDALWRITE_CTRL *prhs, GDALRasterBandH hBand, void *data, int n_rows, int n_cols) {
 	int error = 0, i, j;
 	float *t = (float *)data;
-	uint64_t k, n, nm = gmt_M_get_nm (GMT, n_rows, n_cols);
+	uint64_t k, n, nm = gmt_M_get_nm(GMT, n_rows, n_cols);
 	/* In gmt_gdal_write_grd we made the pointer to point to the beginning of the non-padded zone, so to make it
 	   coherent we retrieve pad[XLO]. However, nothing of this is taking into account a -R subregion so all of this
 	   (and not only this case) will probably fail for that case.
@@ -236,59 +255,64 @@ GMT_LOCAL int gmtgdalwrite_write_jp2 (struct GMT_CTRL *GMT, struct GMT_GDALWRITE
 	t -= prhs->pad[XLO];
 	if (prhs->orig_type == GMT_UCHAR) {
 		char *dataT = gmt_M_memory(GMT, NULL, nm, char);
+		if (dataT == NULL) return GMT_MEMORY_ERROR;
 		for (i = 0, k = 0; i < n_rows; i++) {
 			n = (uint64_t)i*prhs->nXSizeFull + prhs->pad[XLO];
 			for (j = 0; j < n_cols; j++)
 				dataT[k++] = (char)t[n + j];
 		}
 		error = GDALRasterIO(hBand, GF_Write, 0, 0, n_cols, n_rows, dataT, n_cols, n_rows, GDT_Byte, 0, 0);
-		gmt_M_free (GMT, dataT);
+		gmt_M_free(GMT, dataT);
 	}
 	else if (prhs->orig_type == GMT_USHORT) {
 		short int *dataT = gmt_M_memory(GMT, NULL, nm, unsigned short int);
+		if (dataT == NULL) return GMT_MEMORY_ERROR;
 		for (i = 0, k = 0; i < n_rows; i++) {
 			n = (uint64_t)i*prhs->nXSizeFull + prhs->pad[XLO];
 			for (j = 0; j < n_cols; j++)
 				dataT[k++] = (unsigned short int)t[n + j];
 		}
 		error = GDALRasterIO(hBand, GF_Write, 0, 0, n_cols, n_rows, dataT, n_cols, n_rows, GDT_UInt16, 0, 0);
-		gmt_M_free (GMT, dataT);
+		gmt_M_free(GMT, dataT);
 	}
 	else if (prhs->orig_type == GMT_SHORT) {
 		short int *dataT = gmt_M_memory(GMT, NULL, nm, short int);
+		if (dataT == NULL) return GMT_MEMORY_ERROR;
 		for (i = 0, k = 0; i < n_rows; i++) {
 			n = (uint64_t)i*prhs->nXSizeFull + prhs->pad[XLO];
 			for (j = 0; j < n_cols; j++)
 				dataT[k++] = (short int)t[n + j];
 		}
 		error = GDALRasterIO(hBand, GF_Write, 0, 0, n_cols, n_rows, dataT, n_cols, n_rows, GDT_Int16, 0, 0);
-		gmt_M_free (GMT, dataT);
+		gmt_M_free(GMT, dataT);
 	}
 	else if (prhs->orig_type == GMT_UINT) {
 		unsigned int *dataT = gmt_M_memory(GMT, NULL, nm, unsigned int);
+		if (dataT == NULL) return GMT_MEMORY_ERROR;
 		for (i = 0, k = 0; i < n_rows; i++) {
 			n = (uint64_t)i*prhs->nXSizeFull + prhs->pad[XLO];
 			for (j = 0; j < n_cols; j++)
 				dataT[k++] = (unsigned int)t[n + j];
 		}
 		error = GDALRasterIO(hBand, GF_Write, 0, 0, n_cols, n_rows, dataT, n_cols, n_rows, GDT_UInt32, 0, 0);
-		gmt_M_free (GMT, dataT);
+		gmt_M_free(GMT, dataT);
 	}
 	else if (prhs->orig_type == GMT_INT) {
 		int *dataT = gmt_M_memory(GMT, NULL, nm, int);
+		if (dataT == NULL) return GMT_MEMORY_ERROR;
 		for (i = 0, k = 0; i < n_rows; i++) {
 			n = (uint64_t)i*prhs->nXSizeFull + prhs->pad[XLO];
 			for (j = 0; j < n_cols; j++)
 				dataT[k++] = (int)t[n + j];
 		}
 		error = GDALRasterIO(hBand, GF_Write, 0, 0, n_cols, n_rows, dataT, n_cols, n_rows, GDT_Int32, 0, 0);
-		gmt_M_free (GMT, dataT);
+		gmt_M_free(GMT, dataT);
 	}
 
 	return error;
 }
 
-int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL *prhs) {
+int gmt_gdalwrite(struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL *prhs) {
 	int	bStrict = false;
 	char **papszOptions = NULL, *projWKT = NULL;
 	char *pszFormat = "GTiff";
@@ -325,10 +349,10 @@ int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL 
 	/* Find out in which data type was given the input array */
 	/* The two first cases below are messy. Decision should be made by a mem layout code stored in prhs */
 	if (!strcmp(prhs->type,"byte")) {		/* This case arrives here via grdimage */
-		uint64_t imsize = gmt_M_get_nm (GMT, n_cols, n_rows);
+		uint64_t imsize = gmt_M_get_nm(GMT, n_cols, n_rows);
 		typeCLASS = GDT_Byte;
 		n_byteOffset = 1;
-		outByte = gmt_M_memory (GMT, NULL, imsize, unsigned char);
+		if ((outByte = gmt_M_memory(GMT, NULL, imsize, unsigned char)) == NULL) return GMT_NOTSET;
 	}
 	else if (!strcmp(prhs->type,"uint8")) {
 		typeCLASS = GDT_Byte;
@@ -356,8 +380,8 @@ int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL 
 		n_byteOffset = 4;
 	}
 	else {
-		GMT_Report (GMT->parent, GMT_MSG_ERROR, "gmt_gdalwrite: Unsupported input data class!\n");
-		return -1;
+		GMT_Report(GMT->parent, GMT_MSG_ERROR, "gmt_gdalwrite: Unsupported input data class!\n");
+		return GMT_NOTSET;
 	}
 
 	/* Jpeg2000 driver doesn't accept float arrays so we'll have to copy it into an int16 */
@@ -368,7 +392,7 @@ int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL 
 		else if (prhs->orig_type == GMT_UINT)   typeCLASS_f = GDT_Int32;
 		else if (prhs->orig_type == GMT_INT)    typeCLASS_f = GDT_UInt32;
 		else {
-			GMT_Report (GMT->parent, GMT_MSG_ERROR, "gmt_gdalwrite: The Jpeg2000 driver does not support floats.\n");
+			GMT_Report(GMT->parent, GMT_MSG_ERROR, "gmt_gdalwrite: The Jpeg2000 driver does not support floats.\n");
 			gmt_M_free(GMT, outByte);
 			return -1;
 		}
@@ -393,22 +417,22 @@ int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL 
 			dc = nc - rint(nc);
 		}
 		ptr = prhs->C.cpt;
-		hColorTable = GDALCreateColorTable (GPI_RGB);
+		hColorTable = GDALCreateColorTable(GPI_RGB);
 		if (prhs->C.n_colors < 2000 || dc > 0) {			/* Simple case. Not overloaded meaning */
 			for (i = 0; i < nColors; i++) {
-				sEntry.c1 = gmt_M_s255 (gmt_M_get_rgba(ptr, i, 0, nColors));
-				sEntry.c2 = gmt_M_s255 (gmt_M_get_rgba(ptr, i, 1, nColors));
-				sEntry.c3 = gmt_M_s255 (gmt_M_get_rgba(ptr, i, 2, nColors));
+				sEntry.c1 = gmt_M_s255(gmt_M_get_rgba(ptr, i, 0, nColors));
+				sEntry.c2 = gmt_M_s255(gmt_M_get_rgba(ptr, i, 1, nColors));
+				sEntry.c3 = gmt_M_s255(gmt_M_get_rgba(ptr, i, 2, nColors));
 				sEntry.c4 = (short)255;
 				GDALSetColorEntry (hColorTable, i, &sEntry);
 			}
 		}
 		else {			/* Means the pointer points into a 4 columns array: RGB+alpha */
 			for (i = 0; i < (int)nc; i++) {
-				sEntry.c1 = gmt_M_s255 (gmt_M_get_rgba(ptr, i, 0, nColors));
-				sEntry.c2 = gmt_M_s255 (gmt_M_get_rgba(ptr, i, 1, nColors));
-				sEntry.c3 = gmt_M_s255 (gmt_M_get_rgba(ptr, i, 2, nColors));
-				sEntry.c4 = gmt_M_s255 (gmt_M_get_rgba(ptr, i, 3, nColors));
+				sEntry.c1 = gmt_M_s255(gmt_M_get_rgba(ptr, i, 0, nColors));
+				sEntry.c2 = gmt_M_s255(gmt_M_get_rgba(ptr, i, 1, nColors));
+				sEntry.c3 = gmt_M_s255(gmt_M_get_rgba(ptr, i, 2, nColors));
+				sEntry.c4 = gmt_M_s255(gmt_M_get_rgba(ptr, i, 3, nColors));
 				GDALSetColorEntry (hColorTable, i, &sEntry);
 			}
 		}
@@ -440,8 +464,8 @@ int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL 
 			projWKT = pszPrettyWkt;
 		}
 		else {
-			GMT_Report (GMT->parent, GMT_MSG_ERROR, "gmt_gdalwrite failed to convert the proj4 string\n%s\n to WKT\n",
-					prhs->P.ProjRefPROJ4);
+			GMT_Report(GMT->parent, GMT_MSG_ERROR, "gmt_gdalwrite failed to convert the proj4 string\n%s\n to WKT\n",
+			           prhs->P.ProjRefPROJ4);
 		}
 
 		OSRDestroySpatialReference(hSRS_2);
@@ -455,15 +479,15 @@ int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL 
 	hDriverOut = GDALGetDriverByName(pszFormat);	/* The true output format driver */
 
 	if (hDriverOut == NULL) {
-		GMT_Report (GMT->parent, GMT_MSG_ERROR, "gmt_gdalwrite: Output driver %s not recognized\n", pszFormat);
-		if (gmt_M_is_verbose (GMT, GMT_MSG_WARNING)) {
-			GMT_Report (GMT->parent, GMT_MSG_WARNING, "The following format drivers are configured and support output:\n");
+		GMT_Report(GMT->parent, GMT_MSG_ERROR, "gmt_gdalwrite: Output driver %s not recognized\n", pszFormat);
+		if (gmt_M_is_verbose(GMT, GMT_MSG_WARNING)) {
+			GMT_Report(GMT->parent, GMT_MSG_WARNING, "The following format drivers are configured and support output:\n");
 			for (i = 0; i < GDALGetDriverCount(); i++) {
 				hDriver = GDALGetDriver(i);
 				if (GDALGetMetadataItem(hDriver, GDAL_DCAP_CREATE, NULL) != NULL ||
 				    GDALGetMetadataItem(hDriver, GDAL_DCAP_CREATECOPY, NULL) != NULL)
-					GMT_Report (GMT->parent, GMT_MSG_WARNING, "  %s: %s\n",
-					            GDALGetDriverShortName(hDriver), GDALGetDriverLongName(hDriver));
+					GMT_Report(GMT->parent, GMT_MSG_WARNING, "  %s: %s\n",
+					           GDALGetDriverShortName(hDriver), GDALGetDriverLongName(hDriver));
 			}
 		}
 		gmtlib_GDALDestroyDriverManager(GMT->parent);
@@ -478,7 +502,7 @@ int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL 
 
 
 	if (hDstDS == NULL) {
-		GMT_Report (GMT->parent, GMT_MSG_ERROR, "GDALOpen failed - %d\n%s\n", CPLGetLastErrorNo(), CPLGetLastErrorMsg());
+		GMT_Report(GMT->parent, GMT_MSG_ERROR, "GDALOpen failed - %d\n%s\n", CPLGetLastErrorNo(), CPLGetLastErrorMsg());
 		gmtlib_GDALDestroyDriverManager(GMT->parent);
 		gmt_M_free(GMT, outByte);
 		return (-1);
@@ -488,7 +512,7 @@ int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL 
 	if (prhs->co_options) {
 		unsigned int  pos = 0;
 		char token[64];
-		while (gmt_strtok (prhs->co_options, "+", &pos, token)) {
+		while (gmt_strtok(prhs->co_options, "+", &pos, token)) {
 			if (token[0] == 'c')
 				papszOptions = CSLAddString(papszOptions, &token[1]);	/* Jump the 'c' */
 		}
@@ -501,14 +525,19 @@ int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL 
 		 * supported everywhere, when n_cols < tile_width || n_rows < tile_height */
 		if (n_cols > 3 * GDAL_TILE_SIZE && n_rows > 3 * GDAL_TILE_SIZE)
 			papszOptions = CSLAddString(papszOptions, "TILED=YES");
+	}
 
-		if (is_geog || projWKT) {
-			/* Be respectful to data type registration */
-			if (registration == 0)
-				GDALSetMetadataItem(hDstDS, "AREA_OR_POINT", "Point", NULL);
-			else
-				GDALSetMetadataItem(hDstDS, "AREA_OR_POINT", "Area", NULL);
-		}
+	/* Be respectful to the registration of the data we are saving: without a tag in the file a pixel registered grid
+	 * comes back gridline registered, with its region shrunk by half a cell.  Note this used to be done for GTiff
+	 * only, and then only when the grid was georeferenced and the user had passed no +c<options>, which is why plain
+	 * Cartesian grids lost their registration.  We skip the picture-only drivers, which have nowhere to put this and
+	 * would only gain a .aux.xml sidecar for it. */
+	if (!gmtgdalwrite_is_picture_driver (pszFormat)) {
+		GDALSetMetadataItem(hDstDS, "AREA_OR_POINT", (registration == 0) ? "Point" : "Area", NULL);
+		/* AREA_OR_POINT alone is not enough: GDAL never records it when it is "Area", that being the implicit
+		 * default, and the GeoTIFF driver writes no keys at all for a raster with no referencing.  So state the
+		 * registration in a GMT item as well - that is what gmt_gdalread reads back. */
+		GDALSetMetadataItem(hDstDS, "GMT_REGISTRATION", (registration == 0) ? "gridline" : "pixel", NULL);
 	}
 	if (prhs->co_options)
 		free (prhs->co_options);		/* Was allocated with an strdup() in gmt_gdal_write_grd() */
@@ -537,7 +566,7 @@ int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL 
 		hBand = GDALGetRasterBand(hDstDS, i+1);
 		if (i == 0 && hColorTable != NULL) {
 			if (GDALSetRasterColorTable(hBand, hColorTable) == CE_Failure)
-				GMT_Report (GMT->parent, GMT_MSG_ERROR, "\tERROR creating Color Table");
+				GMT_Report(GMT->parent, GMT_MSG_ERROR, "\tERROR creating Color Table");
 			GDALDestroyColorTable(hColorTable);
 		}
 		switch (typeCLASS) {
@@ -547,7 +576,7 @@ int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL 
 				if (!strcmp(prhs->type, "byte")) {
 					/* This case arrives here from a separate path. It started in grdimage and an originally
 					   data was in uchar but padded and possibly 3D (RGB) */
-					uint64_t imsize = gmt_M_get_nm (GMT, n_cols, n_rows);
+					uint64_t imsize = gmt_M_get_nm(GMT, n_cols, n_rows);
 					tmpByte = (unsigned char *)data;
 					for (nn = 0; nn < imsize; nn++)
 						outByte[nn] = tmpByte[nn*n_bands + i];
@@ -557,7 +586,7 @@ int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL 
 				}
 				else {
 					/* Here 'data' was converted to uchar in gmt_customio.c/gmt_gdal_write_grd */
-					ijk = i * gmt_M_get_nm (GMT, n_cols, n_rows);
+					ijk = i * gmt_M_get_nm(GMT, n_cols, n_rows);
 					if ((gdal_err = GDALRasterIO(hBand, GF_Write, 0, 0, n_cols, n_rows, &img[ijk], n_cols, n_rows, typeCLASS, 0, 0)) != CE_None)
 						GMT_Report(GMT->parent, GMT_MSG_ERROR, "GDALRasterIO failed to write band %d [err = %d]\n", i, gdal_err);
 				}
@@ -574,18 +603,18 @@ int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL 
 				if (rint(prhs->nan_value) == prhs->nan_value)	/* Only set NoData if nan_value contains an integer value */
 					GDALSetRasterNoDataValue(hBand, prhs->nan_value);
 				if ((gdal_err = GDALRasterIO(hBand, GF_Write, 0, 0, n_cols, n_rows, data, n_cols, n_rows, typeCLASS, 0, 0)) != CE_None)
-					GMT_Report (GMT->parent, GMT_MSG_ERROR, "GDALRasterIO failed to write band %d [err = %d]\n", i, gdal_err);
+					GMT_Report(GMT->parent, GMT_MSG_ERROR, "GDALRasterIO failed to write band %d [err = %d]\n", i, gdal_err);
 				break;
 			case GDT_Float32:
 				GDALSetRasterNoDataValue(hBand, prhs->nan_value);
 				if (!strcasecmp(pszFormat,"JP2OpenJPEG")) {			/* JP2 driver doesn't accept floats, so we must make a copy */
-					if ((gdal_err = gmtgdalwrite_write_jp2 (GMT, prhs, hBand, data, n_rows, n_cols)) != CE_None)
-						GMT_Report (GMT->parent, GMT_MSG_ERROR, "GDALRasterIO failed to write band %d [err = %d]\n", i, gdal_err);
+					if ((gdal_err = gmtgdalwrite_write_jp2(GMT, prhs, hBand, data, n_rows, n_cols)) != CE_None)
+						GMT_Report(GMT->parent, GMT_MSG_ERROR, "GDALRasterIO failed to write band %d [err = %d]\n", i, gdal_err);
 				}
 				else {
 					if ((gdal_err = GDALRasterIO(hBand, GF_Write, 0, 0, n_cols, n_rows, data, n_cols, n_rows, typeCLASS, 0,
 					                             prhs->nXSizeFull * n_byteOffset)) != CE_None)
-						GMT_Report (GMT->parent, GMT_MSG_ERROR, "GDALRasterIO failed to write band %d [err = %d]\n", i, gdal_err);
+						GMT_Report(GMT->parent, GMT_MSG_ERROR, "GDALRasterIO failed to write band %d [err = %d]\n", i, gdal_err);
 				}
 				break;
 		}
@@ -604,15 +633,15 @@ int gmt_gdalwrite (struct GMT_CTRL *GMT, char *fname, struct GMT_GDALWRITE_CTRL 
 
 	if (!prhs->H.active && gmt_strlcmp(pszFormat,"netCDF")) { /* Change some attributes written by GDAL (not finished) */
 		int ncid;
-		error = gmt_nc_open (GMT, fname, NC_WRITE, &ncid);
-		error += nc_put_att_text (ncid, NC_GLOBAL, "history", strlen(prhs->command), prhs->command);
-		error += gmt_nc_close (GMT, ncid);
+		error = gmt_nc_open(GMT, fname, NC_WRITE, &ncid);
+		error += nc_put_att_text(ncid, NC_GLOBAL, "history", strlen(prhs->command), prhs->command);
+		error += gmt_nc_close(GMT, ncid);
 		if (error) GMT_Report(GMT->parent,GMT_MSG_ERROR,"Error adding history: %d\n", error);
 	}
 
 	gmt_M_free(GMT, outByte);
 	if (pszSRS_WKT != NULL) CPLFree(pszSRS_WKT);
-	if (papszOptions != NULL) CSLDestroy (papszOptions);
+	if (papszOptions != NULL) CSLDestroy(papszOptions);
 	gmtlib_GDALDestroyDriverManager(GMT->parent);
 
 	return error;

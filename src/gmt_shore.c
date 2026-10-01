@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -38,24 +38,26 @@
  * These functions simplifies the access to the GMT shoreline, border, and river
  * databases.
  *
- * The PUBLIC functions are (16):
+ * A) List of exported gmt_* functions available to modules and libraries via gmt_dev.h:
  *
- * gmt_set_levels           : Modifies what items to extract from GSHHG database
- * gmt_set_resolution       : Converts resolutions f,h,i,l,c to integers 0-4
- * gmt_init_shore           : Opens selected shoreline database and initializes structures
- * gmt_get_shore_bin        : Returns all selected shore data for this bin
- * gmt_init_br              : Opens selected border/river database and initializes structures
- * gmt_get_br_bin           : Returns all selected border/river data for this bin
- * gmt_get_gshhg_lines      : Returns a GMT_DATASET with lines
- * gmt_assemble_shore       : Creates polygons or lines from shoreline segments
- * gmt_prep_shore_polygons  : Wraps polygons if necessary and prepares them for use
- * gmt_shore_level_at_point : Return hierarchical level at specified point
- * gmt_assemble_br          : Creates lines from border or river segments
- * gmt_free_shore           : Frees up memory used by shorelines for this bin
- * gmt_free_br              : Frees up memory used by shorelines for this bin
- * gmt_free_shore_polygons  : Frees list of polygon coordinates
- * gmt_shore_cleanup        : Frees up main shoreline structure memory
- * gmt_br_cleanup           : Frees up main river/border structure memory
+ *	gmt_assemble_br          : Creates lines from border or river segments
+ *	gmt_assemble_shore       : Creates polygons or lines from shoreline segments
+ *	gmt_br_cleanup           : Frees up main river/border structure memory
+ *	gmt_free_shore           : Frees up memory used by shorelines for this bin
+ *	gmt_free_br              : Frees up memory used by shorelines for this bin
+ *	gmt_free_shore_polygons  : Frees list of polygon coordinates
+ *	gmt_get_br_bin           : Returns all selected border/river data for this bin
+ *	gmt_get_shore_bin        : Returns all selected shore data for this bin
+ *	gmt_get_gshhg_lines      : Returns a GMT_DATASET with lines
+ *	gmt_init_shore           : Opens selected shoreline database and initializes structures
+ *	gmt_init_br              : Opens selected border/river database and initializes structures
+ *	gmt_prep_shore_polygons  : Wraps polygons if necessary and prepares them for use
+ *	gmt_set_levels           : Modifies what items to extract from GSHHG database
+ *	gmt_set_resolution       : Converts resolutions f,h,i,l,c to integers 0-4
+ *	gmt_shore_adjust_res     : Return highest available resolution
+ *	gmt_shore_cleanup        : Frees up main shoreline structure memory
+ *	gmt_shore_level_at_point : Return hierarchical level at specified point
+ *	gmt_shore_version        : Return the GSHHS version string
  *
  * Author:	Paul Wessel
  * Date:	1-JAN-2010
@@ -215,7 +217,7 @@ GMT_LOCAL void gmtshore_prepare_sides (struct GMT_CTRL *GMT, struct GMT_SHORE *c
 	for (s = 0; s < c->ns; s++) if (c->seg[s].entry < 4) c->nside[c->seg[s].entry]++;	/* Add up additional segments entering each side */
 
 	for (i = c->n_entries = 0; i < 4; i++) {	/* Allocate memory and add corners; they are given max pos so they are the last in the sorted list per side */
-		c->side[i] = gmt_M_memory (GMT, NULL, c->nside[i], struct GSHHS_SIDE);
+		if ((c->side[i] = gmt_M_memory (GMT, NULL, c->nside[i], struct GSHHS_SIDE)) == NULL) return;
 		c->side[i][0].pos = (dir == 1) ? GSHHS_MAX_DELTA : 0;	/* position at end of side depends if going CCW (65535) or CW (0) */
 		c->side[i][0].id = (short int)(i - 4);	/* Corners have negative IDs; add 4 to get real ID */
 		c->n_entries += c->nside[i] - 1;	/* Total number of entries so far */
@@ -510,7 +512,7 @@ int gmt_set_resolution (struct GMT_CTRL *GMT, char *res, char opt) {
 	switch (*res) {
 		case 'a':	/* Automatic selection via -J or -R, if possible */
 			if (GMT->common.J.active && !gmt_M_is_linear (GMT)) {	/* Use map scale xxxx as in 1:xxxx */
-				double i_scale = 1.0 / (0.0254 * GMT->current.proj.scale[GMT_X]);
+				double i_scale = 1.0 / (0.0254 * fabs(GMT->current.proj.scale[GMT_X]));
 				if (i_scale > GMT_CRUDE_THRESHOLD)
 					base = 4;	/* crude */
 				else if (i_scale > GMT_LOW_THRESHOLD)
@@ -521,6 +523,10 @@ int gmt_set_resolution (struct GMT_CTRL *GMT, char *res, char opt) {
 					base = 1;	/* high */
 				else
 					base = 0;	/* full */
+				/* The azimuthal equidistant projection is singular at the antipode and the crude resolution's
+				 * 20-degree bins are too coarse to be assembled correctly when an oblique region (-R...+r) brings
+				 * the antipode into (or near) the visible map (issue #3923). Force at least 'low' for -JE. */
+				if (base == 4 && GMT->current.proj.projection_GMT == GMT_AZ_EQDIST) base = 3;
 			}
 			else if (GMT->common.R.active[RSET]) {	/* No scale, based on region only */
 				double area, earth_area = 360 * 180; /* Flat Earth squared degrees */
@@ -595,8 +601,8 @@ int gmt_init_shore (struct GMT_CTRL *GMT, char res, struct GMT_SHORE *c, double 
 	if (!gmtshore_getpathname (GMT, stem, path, true, true))
 		return (GMT_GRDIO_FILE_NOT_FOUND); /* Failed to find file */
 
-		/* zap structure (nc_get_att_text does not null-terminate strings!) */
-		gmt_M_memset (c, 1, struct GMT_SHORE);
+	/* zap structure (nc_get_att_text does not null-terminate strings!) */
+	gmt_M_memset(c, 1, struct GMT_SHORE);
 
 	/* Open shoreline file */
 	gmt_M_err_trap (gmt_nc_open (GMT, path, NC_NOWRITE, &c->cdfid));
@@ -684,7 +690,7 @@ int gmt_init_shore (struct GMT_CTRL *GMT, char res, struct GMT_SHORE *c, double 
 	c->bsize = c->bin_size / 60.0;
 	info->bin_size = c->bsize;	/* To make bin size in degrees accessible elsewhere */
 
-	c->bins = gmt_M_memory (GMT, NULL, c->n_bin, int);
+	if ((c->bins = gmt_M_memory (GMT, NULL, c->n_bin, int)) == NULL) return 0;
 
 	/* Round off area to nearest multiple of block-dimension */
 
@@ -717,18 +723,18 @@ int gmt_init_shore (struct GMT_CTRL *GMT, char res, struct GMT_SHORE *c, double 
 		return (err);
 	}
 	count[0] = c->n_poly;
-	c->GSHHS_parent = gmt_M_memory (GMT, NULL, c->n_poly, int);
+	if ((c->GSHHS_parent = gmt_M_memory (GMT, NULL, c->n_poly, int)) == NULL) return GMT_MEMORY_ERROR;
 	if ((err = nc_get_vara_int (c->cdfid, c->GSHHS_parent_id, start, count, c->GSHHS_parent))) {
 		gmt_shore_cleanup (GMT, c);	/* Free what we have so far and bail */
 		return (err);
 	}
-	c->GSHHS_area = gmt_M_memory (GMT, NULL, c->n_poly, double);
+	if ((c->GSHHS_area = gmt_M_memory (GMT, NULL, c->n_poly, double)) == NULL) return GMT_MEMORY_ERROR;
 	if ((err = nc_get_vara_double (c->cdfid, c->GSHHS_area_id, start, count, c->GSHHS_area))) {
 		gmt_shore_cleanup (GMT, c);	/* Free what we have so far and bail */
 		return (err);
 	}
 	if (int_areas) for (i = 0; i < c->n_poly; i++) c->GSHHS_area[i] *= 0.1;	/* Since they were stored as 10 * km^2 using integers */
-	c->GSHHS_area_fraction = gmt_M_memory (GMT, NULL, c->n_poly, int);
+	if ((c->GSHHS_area_fraction = gmt_M_memory (GMT, NULL, c->n_poly, int)) == NULL) return GMT_MEMORY_ERROR;
 	if ((err = nc_get_vara_int (c->cdfid, c->GSHHS_areafrac_id, start, count, c->GSHHS_area_fraction))) {
 		gmt_shore_cleanup (GMT, c);	/* Free what we have so far and bail */
 		return (err);
@@ -738,7 +744,7 @@ int gmt_init_shore (struct GMT_CTRL *GMT, char res, struct GMT_SHORE *c, double 
 			gmt_shore_cleanup (GMT, c);	/* Free what we have so far and bail */
 			return (err);
 		}
-		c->GSHHS_node = gmt_M_memory (GMT, NULL, c->n_nodes, int);
+		if ((c->GSHHS_node = gmt_M_memory (GMT, NULL, c->n_nodes, int)) == NULL) return GMT_MEMORY_ERROR;
 		count[0] = c->n_nodes;
 		if ((err = nc_get_vara_int (c->cdfid, c->GSHHS_node_id, start, count, c->GSHHS_node))) {
 			gmt_shore_cleanup (GMT, c);	/* Free what we have so far and bail */
@@ -856,7 +862,11 @@ int gmt_get_shore_bin (struct GMT_CTRL *GMT, unsigned int b, struct GMT_SHORE *c
 			ID = c->GSHHS_node[node];	/* GSHHS Id of the polygon that determined the level of the current node */
 			while (ID >= 0 && c->node_level[k] && c->GSHHS_area[ID] < c->min_area) {	/* Polygon must be skipped and node level reset */
 				ID = c->GSHHS_parent[ID];	/* Pick the parent polygon since that is the next polygon up */
-				if (c->node_level[k] != c->node_level_g[k])
+				if (c->lat_sw < -60.0) {	/* Special check for Antarctica due to the two versions of the continent */
+					if (c->node_level[k] != c->node_level_g[k])
+						c->node_level[k]--;		/* ...and drop down one level to that of the parent polygon */
+				}
+				else	/* Not in Antarctica and we need to drop the level as we lost that polygon that covered this node */
 					c->node_level[k]--;		/* ...and drop down one level to that of the parent polygon */
 			}	/* Keep doing this until the polygon containing the node is "too big to fail" or we are in the ocean */
 		}
@@ -1249,7 +1259,11 @@ int gmt_assemble_shore (struct GMT_CTRL *GMT, struct GMT_SHORE *c, int dir, bool
 	}
 
 	wet_or_dry = (dir == 1) ? 1 : 0;	/* If dir == 1 we paint the dry parts */
-	use_this_level = (high_level%2 == wet_or_dry && high_level >= c->min_level);
+	/* The min_level filter is meant to suppress small coastal features, not the ocean background.
+	 * When filling water (-S) and the bin corners are all ocean (high_level == 0), we must paint
+	 * the bin regardless of min_level, otherwise -A with low > 0 leaves ocean bins blank, producing
+	 * a grid-pattern of missing fill (see bug #8942). */
+	use_this_level = (high_level%2 == wet_or_dry && (high_level >= c->min_level || (wet_or_dry == 0 && high_level == 0)));
 
 	if (c->ns == 0 && !use_this_level) return (0);	/* No polygons for this bin */
 
@@ -1408,6 +1422,23 @@ int gmt_assemble_shore (struct GMT_CTRL *GMT, struct GMT_SHORE *c, int dir, bool
 	if (c->ns > 0) p = gmt_M_memory (GMT, p, P, struct GMT_GSHHS_POL);	/* Trim memory */
 
 	for (ku = 0; ku < P; ku++) gmtshore_path_shift2 (p[ku].lon, p[ku].n, west, east, c->leftmost_bin);	/* Deal with possible longitude -/+360 issues */
+	if (c->lon_sw >= east) {	/* This bin sits at or beyond the east border, so its polygons were shifted west above.
+		 * A point that lay exactly on that border is not shifted by the test above, which tears the polygon across
+		 * the entire map: its bounding box then spans every column and the containment test paints unrelated nodes
+		 * clear across the grid [issue #8235].  A polygon cannot be wider than its bin, so when one is we know the
+		 * points left behind belong with the shifted part. */
+		for (ku = 0; ku < P; ku++) {
+			double lon_min = DBL_MAX, lon_max = -DBL_MAX;
+			unsigned int kp;
+			for (kp = 0; kp < (unsigned int)p[ku].n; kp++) {
+				if (p[ku].lon[kp] < lon_min) lon_min = p[ku].lon[kp];
+				if (p[ku].lon[kp] > lon_max) lon_max = p[ku].lon[kp];
+			}
+			if ((lon_max - lon_min) <= c->bsize) continue;	/* This one is intact */
+			for (kp = 0; kp < (unsigned int)p[ku].n; kp++)
+				if (p[ku].lon[kp] >= east && (p[ku].lon[kp] - 360.0) >= west) p[ku].lon[kp] -= 360.0;
+		}
+	}
 
 	*pol = p;
 	return (P);	/* Return list of polygons found */

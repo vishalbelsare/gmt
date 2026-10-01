@@ -1,0 +1,22 @@
+**-A**\ [**x**\|\ **y**]
+    By default, geographic line segments are drawn as great circle arcs by resampling
+    coarse input data along such arcs. To disable this sampling and draw them as
+    straight lines, use the |-A| flag.  For Cartesian data, points are simply connected.
+    To adjust these behaviors, append a directive:
+
+    - **x** - First follow *x*, then *y* for staircase curves.
+    - **y** - First follow *y*, then *x* for staircase curves.
+
+    Here, *x* and *y* have the following meanings:
+
+    - For Cartesian projections, *x* and *y* are the X- and Y-axis.
+    - For gragraphic projections, *x* and *y* are parallels and meridians.
+    - For polar projections, *x* and *y* are theta and radius.
+
+    When used together with |-S|\ **v** (Cartesian vectors), the **x** and **y**
+    directives produce *broken* (right-angle elbow) arrows: instead of a straight line
+    from tail to tip, the vector is drawn along two perpendicular legs meeting at a
+    corner. **x** draws the horizontal leg first, then the vertical leg; **y** draws
+    the vertical leg first, then the horizontal leg. The arrowhead is placed at the tip.
+
+    **Note**: In :doc:`plot3d`, the |-A| option requires constant *z*-coordinates.

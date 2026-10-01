@@ -11,8 +11,7 @@ gmt begin ex32
 	# Here we get and convert the flag of Europe directly from the web through grdconvert using
 	# GDAL support. We take into account the dimension of the flag (1000x667 pixels)
 	# for a ratio of 3x2.
-	# Because GDAL support will not be standard for most users, we have stored
-	# the result, @euflag.nc in this directory.
+	# So simplify this example, we have stored the result, @euflag.nc in this directory.
 
 	Rflag=-R3/9/50/54
 	# gmt grdconvert \
@@ -31,8 +30,9 @@ gmt begin ex32
 	gmt makecpt -C0/51/153,255/204/0 -T0,127,255 -N
 
 	# The next step is the plotting of the image.
-	# We use gmt grdview to plot the topography, euflag.nc to give the color, and illum.nc to give
-	# the shading.
+	# We use gmt grdview to plot the topography, euflag.nc to give the color, and an illumination
+	# from the azimuthal directions 0° (north) and 270° (west) with a normalization via a cumulative
+	# Laplace distribution for the shading.
 	Rplot=$Rflag/-10/790
 	gmt grdview topo_32.nc -JM13c $Rplot -C -G@euflag.nc -I+a0/270+ne0.6 -Qc -JZ1c -p157.5/30
 
@@ -52,5 +52,5 @@ gmt begin ex32
 	gmt text -JZ -p -F+f12p,Helvetica-Bold,red+jRM -Dj0.1i/0 cities.txt
 
 	# cleanup
-	rm -f cities.txt
+	rm -f cities.txt topo_32.nc mask_32.nc
 gmt end show

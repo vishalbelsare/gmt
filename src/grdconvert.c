@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -23,12 +23,13 @@
  */
 
 #include "gmt_dev.h"
+#include "longopt/grdconvert_inc.h"
 
 #define THIS_MODULE_CLASSIC_NAME	"grdconvert"
 #define THIS_MODULE_MODERN_NAME	"grdconvert"
 #define THIS_MODULE_LIB		"core"
 #define THIS_MODULE_PURPOSE	"Convert between different grid formats"
-#define THIS_MODULE_KEYS	"<G{,>G}"
+#define THIS_MODULE_KEYS	"<G{,GG}"
 #define THIS_MODULE_NEEDS	""
 #define THIS_MODULE_OPTIONS "-RVf"
 
@@ -106,12 +107,10 @@ static int usage (struct GMTAPI_CTRL *API, int level) {
 		if (!strstr (grdformats[i], "not supported"))
 			GMT_Usage (API, -2, grdformats[i]);
 	}
-#ifdef HAVE_GDAL
 	GMT_Usage (API, -1, "When <id>=gd on output, the grid will be saved using the GDAL library. Specify <driver> and "
 		"optionally <dataType>. Driver names are as in GDAL (e.g., netCDF, GTiFF, etc.) <dataType> is "
 		"u8|u16|i16|u32|i32|float32; i|u denote signed|unsigned integer.  Default type is float32. Both driver "
 		"names and data types are case insensitive.");
-#endif
 	return (GMT_MODULE_USAGE);
 }
 
@@ -156,35 +155,32 @@ static int parse (struct GMT_CTRL *GMT, struct GRDCONVERT_CTRL *Ctrl, struct GMT
 			case '<':	/* Input and Output files */
 				/* Since grdconvert allowed output grid to be given without -G we must actually
 				 * check for two input files and assign the 2nd as the actual output file */
-				if (n_in == 0) {
-					Ctrl->In.file = strdup (opt->arg);
-					if (GMT_Get_FilePath (API, GMT_IS_GRID, GMT_IN, GMT_FILE_REMOTE, &(Ctrl->In.file))) n_errors++;
-					n_in++;
+				if (n_in == 0) {	/* First time we get the input grid */
+					n_errors += gmt_M_repeated_module_option (API, Ctrl->In.active);
+					n_errors += gmt_get_required_file (GMT, opt->arg, opt->option, 0, GMT_IS_GRID, GMT_IN, GMT_FILE_REMOTE, &(Ctrl->In.file));
 				}
-				else if (n_in == 1) {
-					Ctrl->G.active = true;
-					Ctrl->G.file = strdup (opt->arg);
-					if (GMT_Get_FilePath (API, GMT_IS_GRID, GMT_OUT, GMT_FILE_LOCAL, &(Ctrl->G.file))) n_errors++;
-					n_in++;
+				else if (n_in == 1) {	/* 2nd time it is the output grid */
+					n_errors += gmt_M_repeated_module_option (API, Ctrl->G.active);
+					n_errors += gmt_get_required_file (GMT, opt->arg, opt->option, 0, GMT_IS_GRID, GMT_OUT, GMT_FILE_LOCAL, &(Ctrl->G.file));
 				}
-				else {
-					n_in++;
+				else {	/* There is no 3rd time */
 					GMT_Report (API, GMT_MSG_ERROR, "Specify only one input file\n");
 					n_errors++;
 				}
+				n_in++;
 				break;
 			case '>':	/* Output file may be set this way from the external API */
-				Ctrl->G.active = true;
-				if (opt->arg[0]) Ctrl->G.file = strdup (opt->arg);
-				if (GMT_Get_FilePath (API, GMT_IS_GRID, GMT_OUT, GMT_FILE_LOCAL, &(Ctrl->G.file))) n_errors++;
-				n_in++;
+				if (!Ctrl->G.active) {		/* No output grid yet. This should be used when returning the output grid to Julia/Matlab */
+					n_errors += gmt_M_repeated_module_option (API, Ctrl->G.active);
+					n_errors += gmt_get_required_file (GMT, opt->arg, opt->option, 0, GMT_IS_GRID, GMT_OUT, GMT_FILE_LOCAL, &(Ctrl->G.file));
+					n_in++;
+				}
 				break;
 
 			/* Processes program-specific parameters */
 
 			case 'C':	/* Control history output */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->C.active);
-				Ctrl->C.active = true;
 				switch (opt->arg[0]) {
 					case 'b': Ctrl->C.mode = GMT_GRDHISTORY_BOTH;	break;
 					case 'c': Ctrl->C.mode = GMT_GRDHISTORY_NEW;	break;
@@ -198,30 +194,26 @@ static int parse (struct GMT_CTRL *GMT, struct GRDCONVERT_CTRL *Ctrl, struct GMT
 				break;
 			case 'G':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->G.active);
-				Ctrl->G.active = true;
-				if (Ctrl->G.file) {
+				if (Ctrl->G.file) {	/* Could happen if file was given on command line and via -G */
 					GMT_Report (API, GMT_MSG_ERROR, "Specify only one output file\n");
 					n_errors++;
 				}
-				else {
-					Ctrl->G.file = strdup (opt->arg);
-					if (GMT_Get_FilePath (API, GMT_IS_GRID, GMT_OUT, GMT_FILE_LOCAL, &(Ctrl->G.file))) n_errors++;
-				}
+				else
+					n_errors += gmt_get_required_file (GMT, opt->arg, opt->option, 0, GMT_IS_GRID, GMT_OUT, GMT_FILE_LOCAL, &(Ctrl->G.file));
 				break;
 
 			case 'N':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->N.active);
-				Ctrl->N.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 
 			case 'Z':	/* For scaling or phase data */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->Z.active);
-				Ctrl->Z.active = true;
 				n_errors += grdconvert_parse_Z_opt (GMT, opt->arg, Ctrl);
 				break;
 
 			default:	/* Report bad options */
-				n_errors += gmt_default_error (GMT, opt->option);
+				n_errors += gmt_default_option_error (GMT, opt);
 				break;
 		}
 	}
@@ -258,7 +250,7 @@ EXTERN_MSC int GMT_grdconvert (void *V_API, int mode, void *args) {
 
 	/* Parse the command-line arguments */
 
-	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, NULL, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
+	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, module_kw, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
 	if (GMT_Parse_Common (API, THIS_MODULE_OPTIONS, options)) Return (API->error);
 	Ctrl = New_Ctrl (GMT);	/* Allocate and initialize a new control structure */
 	if ((error = parse (GMT, Ctrl, options)) != 0) Return (error);

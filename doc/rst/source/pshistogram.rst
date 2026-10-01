@@ -14,12 +14,12 @@ Synopsis
 
 **gmt pshistogram** [ *table* ]
 |-J|\ **x**\|\ **X**\ *parameters*
-|-T|\ [*min/max*\ /]\ *inc*\ [**+i**\|\ **n**] \|\ |-T|\ *file*\|\ *list*
+|-T|\ [*min/max*\ /]\ *inc*\ [**+i**\|\ **n**] | |-T|\ *file*\|\ *list*
 [ |-A| ]
 [ |SYN_OPT-B| ]
 [ |-C|\ *cpt*\ [**+b**] ]
 [ |-D|\ [**+b**][**+f**\ *font*][**+o**\ *off*][**+r**] ]
-[ |-E|\ *width*\ [**+o**\ *offset*] ]
+[ |-E|\ *width*\ [**+o**\ *offset*\|\ **l**\|\ **c**\|\ **r**] ]
 [ |-F| ]
 [ |-G|\ *fill* ]
 [ |-I|\ [**o**\|\ **O**] ]

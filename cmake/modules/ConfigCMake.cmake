@@ -51,6 +51,11 @@ endif (EXISTS "${CMAKE_BINARY_DIR}/cmake/ConfigUserAdvanced.cmake")
 # Do any needed processing of the configuration variables #
 ###########################################################
 
+# Normalize the installation prefix on Windows (avoid mixing slashes and backslashes).
+if (WIN32)
+	file (TO_CMAKE_PATH "${CMAKE_INSTALL_PREFIX}" CMAKE_INSTALL_PREFIX)
+endif (WIN32)
+
 # Set default build type to 'Release'
 if (NOT CMAKE_BUILD_TYPE)
 	set (CMAKE_BUILD_TYPE Release)
@@ -91,6 +96,16 @@ if (GIT_FOUND AND HAVE_GIT_VERSION AND NOT GMT_PUBLIC_RELEASE)
 		endif (GIT_COMMIT_HASH)
 	endif (GIT_RETURN_CODE)
 endif (GIT_FOUND AND HAVE_GIT_VERSION AND NOT GMT_PUBLIC_RELEASE)
+
+# Set the GMT building date
+string(TIMESTAMP GMT_BUILD_DATE "%Y.%m.%d" UTC)  # Default to current year.
+if (HAVE_GIT_VERSION)
+	execute_process (COMMAND ${GIT_EXECUTABLE} log -1 --date=short --pretty=format:%cd
+		WORKING_DIRECTORY ${GMT_SOURCE_DIR}
+		OUTPUT_VARIABLE GMT_BUILD_DATE
+		OUTPUT_STRIP_TRAILING_WHITESPACE)
+	string(REPLACE "-" "." GMT_BUILD_DATE "${GMT_BUILD_DATE}")
+endif (HAVE_GIT_VERSION)
 
 # apply license restrictions
 if (LICENSE_RESTRICTED) # on
@@ -220,6 +235,13 @@ if (DO_EXAMPLES OR DO_TESTS AND NOT SUPPORT_EXEC_IN_BINARY_DIR)
 	"testing). Please disable testing on release builds.")
 	set (SUPPORT_EXEC_IN_BINARY_DIR ON)
 endif (DO_EXAMPLES OR DO_TESTS AND NOT SUPPORT_EXEC_IN_BINARY_DIR)
+
+# Tests should use the static data server by default unless the user explicitly set
+# GMT_DATA_SERVER to something else.
+if (DO_TESTS AND GMT_DATA_SERVER STREQUAL "remotedata.generic-mapping-tools.org")
+	message (STATUS "Setting GMT_DATA_SERVER to 'static' for tests")
+	set (GMT_DATA_SERVER "static")
+endif (DO_TESTS AND GMT_DATA_SERVER STREQUAL "remotedata.generic-mapping-tools.org")
 
 # Some tests are known to fail, and can be excluded from the test by adding
 # the comment "# GMT_KNOWN_FAILURE".

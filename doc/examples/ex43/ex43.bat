@@ -1,8 +1,8 @@
 REM               GMT EXAMPLE 43
 REM
 REM Purpose:      Illustrate regression and outlier detection
-REM GMT modules:  gmtregress, basemap, legend, text, plot
-REM DOS calls:	grep, awk, sed
+REM GMT modules:  gmtregress, basemap, legend, text, plot, which
+REM DOS calls:	grep, awk, sed, echo, del, set
 REM
 
 REM Data from Table 7 in Rousseeuw and Leroy, 1987.
@@ -43,7 +43,7 @@ gmt begin ex43
 	echo 30	-2.5	>> lines.txt
 	echo 0	-2.5	>> lines.txt
 	gmt plot lines.txt -Gcornsilk1 -W0.25p,-
-	gawk "{print NR, $6, $7}" A.txt | gmt plot -Sb1ub0 -W0.25p -C
+	gawk "{print NR, $6, $7}" A.txt | gmt plot -Sb1q+b0 -W0.25p -C
 	gmt basemap -Bafg100 -Bx+l"Animal index number" -By+l"z-zcore" -BWSne
 	del *.txt
 gmt end show

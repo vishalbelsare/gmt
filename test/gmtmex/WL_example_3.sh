@@ -5,12 +5,11 @@
 #
 # GMT_KNOWN_FAILURE_LINUX
 # GMT_KNOWN_FAILURE_WINDOWS
-#
 gmt begin WL_example_3 ps
   # Import sea surface temperature grids from several HDF5 layers (lon, lat, sst, sst_qual)
   # Speed up processing by using native binary intermediary files
   file="A2016152023000.L2_LAC_SST.nc"
-  args="=gd?HDF5:A2016152023000.L2_LAC_SST.nc"
+  args="=gd?NETCDF:A2016152023000.L2_LAC_SST.nc"
   gmt which -Gc @${file}
   gmt grd2xyz @${file}${args}://geophysical_data/qual_sst -ZTLf > qual_sst.b
   gmt grd2xyz @${file}${args}://geophysical_data/sst -ZTLf > sst.b
@@ -33,6 +32,6 @@ gmt begin WL_example_3 ps
   gmt coast -Di -Gc -A1000
   gmt grdimage @earth_relief_01m -t50 -I+a0+nt0.7
   gmt coast -Q
-  gmt coast -Di -W0.5p -A1000 -N1/0.5p -TdjTR+w3c+o1c+f3+l --FONT_TITLE=12 --MAP_TITLE_OFFSET=5p
+  gmt coast -Di -W0.5p -A1000 -N1/0.5p -TdjTR+w3c+o0.5c+f3+l --FONT_TITLE=12 --MAP_TITLE_OFFSET=5p
   gmt colorbar -DJBC+w14c/0.25c+o0/1c+h+ef -Baf+u" m"
 gmt end show

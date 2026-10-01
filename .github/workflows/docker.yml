@@ -1,26 +1,62 @@
 #
-# Build GMT on different Linux distros, using dockers
+# Build GMT source codes on different Linux distros using dockers.
+#
+# This workflow is triggered by push or pull request events.
 #
 name: Docker
 
 on:
-  # pull_request:
   push:
     branches:
       - master
       - 6.[0-9]+
+  pull_request:
+  workflow_dispatch:
 
 defaults:
   run:
-    # default to use bash shell
     shell: bash
 
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
 jobs:
+  changes:
+    name: Detect relevant changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read  # required by dorny/paths-filter on pull_request events
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      # paths-filter needs a checkout for push events; on PRs it uses the API
+      - uses: actions/checkout@v6.0.2
+
+      - uses: dorny/paths-filter@v4.0.3
+        id: filter
+        with:
+          filters: |
+            relevant:
+              - 'ci/**'
+              - 'cmake/**'
+              - 'src/**'
+              - '**/CMakeLists.txt'
+              - '.github/workflows/docker.yml'
+
   docker:
     name: ${{ matrix.image }}
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     container:
       image: ${{ matrix.image }}
+    timeout-minutes: 30
 
     env:
       # directories
@@ -28,84 +64,75 @@ jobs:
       INSTALLDIR: ${{ github.workspace }}/gmt-install-dir
       # disable auto-display of GMT plots
       GMT_END_SHOW: off
-      # Compile only
-      BUILD_DOCS  : false
-      PACKAGE     : false
-      RUN_TESTS   : false
+      # Compile only. Used by ci/config-gmt.sh
+      RUN_TESTS: false
 
     strategy:
       fail-fast: false
       matrix:
         image:
-          - ubuntu:14.04  # CMake 2.8.12 + GNU 4.8.4;  EOL: 2024-04-25
-          - ubuntu:16.04  # CMake 3.5.1  + GNU 5.4.0;  EOL: 2026-04-23
-          - ubuntu:18.04  # CMake 3.10.2 + GNU 7.4.0;  EOL: 2028-04-26
-          - ubuntu:20.04  # CMake 3.16.3 + GNU 9.3.0;  EOL: 2030-04-23
-          - ubuntu:21.04  # CMake 3.18.4 + GNU 10.3.0; EOL: 2022-01-20
-          - ubuntu:21.10  # CMake 3.18.4 + GNU 11.2.0; EOL: 2022-07-14
-          - debian:9      # CMake 3.7.2  + GNU 6.3.0;  EOL: 2022-06-30
-          - debian:10     # CMake 3.13.4 + GNU 8.3.0;  EOL: 2024-06-01
-          - debian:11     # CMake 3.18.4 + GNU 10.2.1; EOL: 2026-06-01
-          - debian:sid    # rolling release with latest versions
+          # Test the oldest and latest Ubuntu LTS releases and also unstable Debian/Fedora
+          # Ubuntu: https://en.wikipedia.org/wiki/Ubuntu_version_history#Table_of_versions
+          - ubuntu:22.04    # CMake 3.22.1 + GNU 11.2.0; EOL: 2027-06-01
+          - ubuntu:26.04    # CMake 4.2.3 + GNU 15.2.0;  EOL: 2031-05-29
+          - debian:sid      # rolling release with latest versions
+          - fedora:rawhide  # rolling release with latest versions
 
     steps:
-      - name: Cancel Previous Runs
-        uses: styfle/cancel-workflow-action@0.9.1
-
-      - name: Checkout
-        uses: actions/checkout@v2
-
       - name: Install GMT dependencies
         run: |
-          apt-get update
-          # tzdata is required for Ubuntu>=20.04
-          DEBIAN_FRONTEND="noninteractive" TZ="America/New_York" apt-get install -y tzdata
-          apt-get install -y --no-install-recommends --no-install-suggests \
-               build-essential cmake ninja-build libcurl4-gnutls-dev libnetcdf-dev \
-               ghostscript curl git \
-               libgdal-dev libfftw3-dev libpcre3-dev liblapack-dev libglib2.0-dev
+          . /etc/os-release
+          if [[ "$ID" = "ubuntu" || "$ID" = "debian" ]]; then
+            apt-get update
+            DEBIAN_FRONTEND="noninteractive" TZ="America/New_York" apt-get install -y tzdata
+            apt-get install -y --no-install-recommends --no-install-suggests \
+                 build-essential cmake ninja-build \
+                 libcurl4-gnutls-dev libnetcdf-dev libgdal-dev \
+                 libfftw3-dev libpcre2-dev liblapack-dev libglib2.0-dev \
+                 ghostscript curl git
+            apt reinstall -y ca-certificates
+            update-ca-certificates
+            # Install gh from binary deb package.
+            curl -LO https://github.com/cli/cli/releases/download/v2.100.0/gh_2.100.0_linux_amd64.deb
+            apt install -y ./gh_2.100.0_linux_amd64.deb
+          elif [[ "$ID" = "fedora" ]]; then
+            dnf install -y --disablerepo=fedora-cisco-openh264 \
+                gcc git cmake ninja-build \
+                libcurl-devel netcdf-devel gdal-devel \
+                fftw3-devel pcre2-devel lapack-devel openblas-devel glib2-devel \
+                ghostscript gh
+          fi
 
-      - name: Cache GSHHG and DCW data
-        uses: actions/cache@v2
-        id: cache-coastline
-        with:
-          path: ${{ env.COASTLINEDIR }}
-          key: coastline-${{ hashFiles('ci/download-coastlines.sh') }}
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
 
-      - name: Download coastlines
-        run: bash ci/download-coastlines.sh
-        if: steps.cache-coastline.outputs.cache-hit != 'true'
+      - name: Fixup git
+        run: git config --global --add safe.directory $GITHUB_WORKSPACE
+
+      - name: Download GSHHG and DCW data
+        run: gh run download -n coastline-cache -D coastline
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Configure GMT
-        run: bash ci/config-gmt-unix.sh
+        run: bash ci/config-gmt.sh
 
-      - name: Compile GMT
+      - name: Compile and install GMT
         run: |
           mkdir build
           cd build
           cmake -G Ninja ..
           cmake --build .
-
-      - name: Download cached GMT remote data from GitHub Artifacts
-        uses: dawidd6/action-download-artifact@v2.16.0
-        with:
-          workflow: ci-caches.yml
-          name: gmt-cache
-          path: .gmt
-
-      # Move downloaded files to ~/.gmt directory and list them
-      - name: Move and list downloaded remote files
-        run: |
-          mkdir -p ~/.gmt
-          mv .gmt/* ~/.gmt
-          ls -lRh ~/.gmt
-
-      - name: Install GMT
-        run: |
-          cd build
           cmake --build . --target install
           # Add GMT PATH to bin
           echo "${INSTALLDIR}/bin" >> $GITHUB_PATH
+
+      - name: Download cached GMT remote data from GitHub Artifacts
+        run: |
+          gh run download -n gmt-cache -D ~/.gmt/static/
+          touch ~/.gmt/static/gmt_data_server.txt ~/.gmt/static/gmt_hash_server.txt
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Check a few simple commands
         run: bash ci/simple-gmt-tests.sh

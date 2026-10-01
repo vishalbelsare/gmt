@@ -21,8 +21,6 @@ Default settings for built-in themes
 +-----------------------------------+---------------------------------+---------------------------------+---------------------------------+
 | :term:`FONT_LABEL`                | 16p,Helvetica,black             | auto,Helvetica,black            | auto,AvantGarde-Book,black      |
 +-----------------------------------+---------------------------------+---------------------------------+---------------------------------+
-| :term:`FONT_LOGO`                 | 8p,Helvetica,black              | auto,Helvetica,black            | auto,Helvetica,black            |
-+-----------------------------------+---------------------------------+---------------------------------+---------------------------------+
 | :term:`FONT_SUBTITLE`             | 18p,Helvetica,black             | auto,Helvetica-Bold,black       | auto,AvantGarde-Book,black      |
 +-----------------------------------+---------------------------------+---------------------------------+---------------------------------+
 | :term:`FONT_TAG`                  | 20p,Helvetica,black             | auto,Helvetica,black            | auto,AvantGarde-Book,black      |
@@ -36,6 +34,8 @@ Default settings for built-in themes
 | :term:`MAP_ANNOT_OFFSET_PRIMARY`  | 5p                              | :ref:`auto <auto-scaling>`      | :ref:`auto <auto-scaling>`      |
 +-----------------------------------+---------------------------------+---------------------------------+---------------------------------+
 | :term:`MAP_ANNOT_OFFSET_SECONDARY`| 5p                              | :ref:`auto <auto-scaling>`      | :ref:`auto <auto-scaling>`      |
++-----------------------------------+---------------------------------+---------------------------------+---------------------------------+
+| :term:`MAP_EMBELLISHMENT_MODE`    | manual                          | :ref:`auto <auto-scaling>`      | :ref:`auto <auto-scaling>`      |
 +-----------------------------------+---------------------------------+---------------------------------+---------------------------------+
 | :term:`MAP_FRAME_AXES`            | WESNZ                           | :ref:`auto <auto-scaling>`      | :ref:`auto <auto-scaling>`      |
 +-----------------------------------+---------------------------------+---------------------------------+---------------------------------+

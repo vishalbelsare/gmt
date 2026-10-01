@@ -1,6 +1,5 @@
 #
-#
-# Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+# Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
 # See LICENSE.TXT file for copying and redistribution conditions.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -140,20 +139,16 @@ message (STATUS "Searching dependent libraries. This may take a few minutes...")
 find_package (NETCDF REQUIRED)
 include_directories (${NETCDF_INCLUDE_DIR})
 
-# libcurl is required since 5.4
-find_package (CURL REQUIRED)
+# libcurl is required since GMT 5.4
+# At least version 7.55.0 is needed for src/gmt_remote.c
+find_package (CURL 7.55.0 REQUIRED)
 include_directories (${CURL_INCLUDE_DIRS})
 list (APPEND GMT_OPTIONAL_LIBRARIES ${CURL_LIBRARIES})
 set (CURL_LIBRARY ${CURL_LIBRARIES} CACHE INTERNAL "")
 
-if (NOT DEFINED GMT_EXCLUDE_GDAL)
-	find_package (GDAL)
-endif (NOT DEFINED GMT_EXCLUDE_GDAL)
-if (GDAL_FOUND)
-	set (HAVE_GDAL TRUE CACHE INTERNAL "System has GDAL")
-	include_directories (${GDAL_INCLUDE_DIR})
-	list (APPEND GMT_OPTIONAL_LIBRARIES ${GDAL_LIBRARIES})
-endif (GDAL_FOUND)
+find_package (GDAL REQUIRED)
+include_directories (${GDAL_INCLUDE_DIR})
+list (APPEND GMT_OPTIONAL_LIBRARIES ${GDAL_LIBRARIES})
 
 if (NOT DEFINED GMT_EXCLUDE_GEOS)
 	find_package (GEOS)
@@ -228,6 +223,20 @@ else (LAPACK_FOUND)
 	endif (LAPACK_LIBRARY)
 endif (LAPACK_FOUND)
 
+# Need to know if macOS and kernel is >= 22.4.0 for newLapack syntax
+if (CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+	execute_process (COMMAND bash "-c" "echo ${CMAKE_HOST_SYSTEM_VERSION} | awk -F. '{if ($1 > 22 || ($1 == 22 && $2 > 3)) {print 1} else {print 0}}'"
+		OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE ACCELERATE_NEW_LAPACK)
+else (CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+	set (ACCELERATE_NEW_LAPACK 0)
+endif (CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin")
+
+if (HAVE_LAPACK AND ACCELERATE_NEW_LAPACK GREATER 0 AND LAPACK_LIBRARIES MATCHES ".*Accelerate.*")
+	# Recent macOS with Darwin kernel > 22.4 needs this compiler flag:
+	add_compile_definitions(ACCELERATE_NEW_LAPACK)
+	message("-- Must add compiler flag -DACCELERATE_NEW_LAPACK definition for macOS kernel version ${CMAKE_HOST_SYSTEM_VERSION}")
+endif (HAVE_LAPACK AND ACCELERATE_NEW_LAPACK GREATER 0 AND LAPACK_LIBRARIES MATCHES ".*Accelerate.*")
+
 if (NOT DEFINED GMT_EXCLUDE_BLAS)
 	find_package (BLAS)
 endif (NOT DEFINED GMT_EXCLUDE_BLAS)
@@ -264,15 +273,14 @@ if (APPLE)
 	list (APPEND GMT_OPTIONAL_LIBRARIES ${ACCELERATE_FRAMEWORK})
 endif (APPLE)
 
-find_package (OpenMP)
+find_package (OpenMP COMPONENTS C)
 if (GMT_OPENMP)
 	set (GMT_ENABLE_OPENMP TRUE)
 	message (WARNING "CMake variable GMT_OPENMP is deprecated and will be removed in the future releases. Use GMT_ENABLE_OPENMP instead.")
 endif (GMT_OPENMP)
 if (OPENMP_FOUND AND GMT_ENABLE_OPENMP)
+	list (APPEND GMT_OPTIONAL_LIBRARIES OpenMP::OpenMP_C)
 	set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-	set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
-	set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${OpenMP_SHARED_LINKER_FLAGS}")
 	set (HAVE_OPENMP TRUE CACHE INTERNAL "OpenMP enabled." FORCE)
 	set (GMT_CONFIG_OPENMP_MESSAGE "enabled" CACHE INTERNAL "OPENMP config message")
 elseif (OPENMP_FOUND AND NOT GMT_ENABLE_OPENMP)
@@ -290,17 +298,20 @@ if (GLIB_FOUND AND GMT_USE_THREADS)
 	list (APPEND GMT_OPTIONAL_LIBRARIES ${GLIB_LIBRARIES})
 	set (GMT_CONFIG_GTHREAD_MESSAGE "enabled (${GLIB_VERSION})"
 		CACHE INTERNAL "GTHREAD config message")
+	set (GMT_CONFIG_GTHREAD_MESSAGE "enabled" CACHE INTERNAL "GLIB config message")
 endif (GLIB_FOUND AND GMT_USE_THREADS)
 if (GLIB_FOUND AND NOT GMT_USE_THREADS)
 	set (HAVE_GLIB_GTHREAD FALSE CACHE INTERNAL "User disabled threads")
 	message (STATUS "User variable GMT_USE_THREADS not set: disabling GThread.")
 	set (GMT_CONFIG_GTHREAD_MESSAGE "disabled"
 		CACHE INTERNAL "GTHREAD config message")
+	set (GMT_CONFIG_GTHREAD_MESSAGE "disabled" CACHE INTERNAL "GLIB config message")
 endif (GLIB_FOUND AND NOT GMT_USE_THREADS)
 if (GMT_USE_THREADS AND NOT GLIB_FOUND)
 	message (FATAL_ERROR "User variable GMT_USE_THREADS set but GLIB component gthread not found.")
 	set (GMT_CONFIG_GTHREAD_MESSAGE "unavailable"
 		CACHE INTERNAL "GTHREAD config message")
+	set (GMT_CONFIG_GTHREAD_MESSAGE "unavailable" CACHE INTERNAL "GLIB config message")
 endif (GMT_USE_THREADS AND NOT GLIB_FOUND)
 
 # FreeBSD uses a separate library for backtracking
@@ -381,6 +392,14 @@ set (GMT_PSL_SRCS postscriptlight.c declspec.h psl_config.h PSL_Standard+.h
 
 set (GMT_MBSYSTEM_SRCS gmt_mbsystem_glue.c)
 
+AUX_SOURCE_DIRECTORY (longopt GMT_LONG_OPT_H)
+
+if (BUILD_IMGTEXTURE)
+	set (IMGTEXTURE_SRC imgtexture/terrain_filter.c imgtexture/transpose_inplace.c imgtexture/dct_fftpack.c imgtexture/fftpack.c
+	     imgtexture/compatibility.h imgtexture/dct.h imgtexture/extern_msc.h imgtexture/fftpack.h imgtexture/terrain_filter.h
+	     imgtexture/transpose_inplace.h)
+endif (BUILD_IMGTEXTURE)
+
 # libgmt
 set (GMT_LIB_SRCS block_subs.h gmt_common_byteswap.h gmt_common_math.h
 	gmt_common_runpath.h gmt_common_sighandler.h gmt_common_string.h clear.c begin.c
@@ -406,8 +425,8 @@ set (GMT_LIB_SRCS block_subs.h gmt_common_byteswap.h gmt_common_math.h
 	${CMAKE_CURRENT_BINARY_DIR}/gmt_sharedlibs.h
 	${CMAKE_CURRENT_BINARY_DIR}/gmt_${SHARED_LIB_NAME}_glue.c
 	kiss_fft/_kiss_fft_guts.h kiss_fft/kiss_fft.c kiss_fft/kiss_fft.h
-	kiss_fft/kiss_fftnd.c kiss_fft/kiss_fftnd.h
-	${GMT_TRIANGLE_SRCS} ${GMT_MBSYSTEM_SRCS} ${EXTRA_SOURCES})
+	kiss_fft/kiss_fftnd.c kiss_fft/kiss_fftnd.h ${GMT_LONG_OPT_H}
+	${GMT_TRIANGLE_SRCS} ${GMT_MBSYSTEM_SRCS} ${IMGTEXTURE_SRC} ${EXTRA_SOURCES})
 
 # source codes for testing API
 if (DO_API_TESTS)
@@ -536,9 +555,9 @@ if (HAVE_DLADDR AND HAVE_LIBDL)
 	target_link_libraries (gmtlib dl)
 endif (HAVE_DLADDR AND HAVE_LIBDL)
 
-if (MSVC AND FFTW3_FOUND)
+if ((MSVC OR MINGW) AND FFTW3_FOUND)
 	target_link_libraries (gmtlib ws2_32)
-endif (MSVC AND FFTW3_FOUND)
+endif ((MSVC OR MINGW) AND FFTW3_FOUND)
 
 # set the build version (VERSION) and the API version (SOVERSION)
 set_target_properties (gmtlib
@@ -583,6 +602,22 @@ target_link_libraries (gshhg_version ${NETCDF_LIBRARIES})
 
 # script2verbatim for removing comments, replacing -ps from example scripts
 add_executable (script2verbatim script2verbatim.c)
+
+if (MSVC)
+	option(WITH_GMT_UPDATE "Build and install gmt_update executable" ON)
+	if (WITH_GMT_UPDATE)
+		# gmt_update — standalone binary updater. Deliberately does NOT link against
+		# libgmt/pslib so that those DLLs are NOT held open by this process and can be
+		# replaced on Windows. Uses only libcurl + an embedded public-domain SHA-256.
+		add_executable (gmt_update gmt_update.c sha256.c)
+		target_include_directories (gmt_update PRIVATE ${CURL_INCLUDE_DIRS})
+		target_link_libraries (gmt_update ${CURL_LIBRARIES})
+		if (WIN32)
+			target_link_libraries (gmt_update rstrtmgr)
+		endif (WIN32)
+		install (TARGETS gmt_update RUNTIME DESTINATION ${GMT_BINDIR} COMPONENT Runtime)
+	endif()
+endif()
 
 
 ##
@@ -662,9 +697,9 @@ install (FILES gmt.h gmt_resources.h declspec.h
 
 # Install developer headers
 if (BUILD_DEVELOPER)
-	# Install Developer headers [These are clean and have no #define HAVE_* configuration]
+	# Install Developer headers [These are clean and have no #define HAVE_* configuration, except gmt_glib.h]
 	install (FILES postscriptlight.h gmt_common_math.h gmt_common_string.h gmt_common.h gmt_constants.h gmt_contour.h
-		gmt_dcw.h gmt_decorate.h gmt_defaults.h gmt_error.h gmt_error_codes.h gmt_fft.h gmt_gdalread.h gmt_grd.h
+		gmt_dcw.h gmt_decorate.h gmt_defaults.h gmt_error.h gmt_error_codes.h gmt_fft.h gmt_gdalread.h gmt_glib.h gmt_grd.h
 		gmt_grdio.h gmt_hash.h gmt_io.h gmt_macros.h gmt_memory.h gmt_modern.h gmt_nan.h gmt_notposix.h gmt_plot.h
 		gmt_private.h gmt_project.h gmt_prototypes.h gmt_psl.h gmt_shore.h gmt_common_sighandler.h gmt_symbol.h gmt_synopsis.h
 		gmt_texture.h gmt_time.h gmt_types.h gmt_dev.h gmt_customio.h gmt_hidden.h gmt_mb.h gmt_remote.h gmt_common_byteswap.h
@@ -693,7 +728,7 @@ if (BUILD_SUPPLEMENTS)
 	# supplement directories to be built as supplement libraries
 	# SUPPL_EXTRA_DIRS are directories for custom supplements.
 	# See cmake/ConfigUserAdvancedTemplate.cmake for details.
-	set (GMT_SUPPL_DIRS geodesy gshhg img mgd77 potential segy seis spotter x2sys ${SUPPL_EXTRA_DIRS})
+	set (GMT_SUPPL_DIRS geodesy gsfml gshhg img mgd77 potential segy seis spotter x2sys windbarbs nswing ${SUPPL_EXTRA_DIRS})
 
 	# process supplement directories and collect information for each supplement libraries
 	set (GMT_SUPPL_LIBRARIES) # empty the library list

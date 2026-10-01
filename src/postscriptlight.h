@@ -1,6 +1,7 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 2009-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 2009-2025 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
  *	it under the terms of the GNU Lesser General Public License as published by
@@ -11,6 +12,7 @@
  *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  *	GNU Lesser General Public License for more details.
  *
+ *	Contact info: www.generic-mapping-tools.org
  *--------------------------------------------------------------------*/
 /*
  * This include file must be included by all programs using postscriptlight
@@ -43,6 +45,7 @@ extern "C" {
 /* Declaration modifiers for DLL support (MSC et al) */
 #include "declspec.h"
 
+#include <stdbool.h>
 #include <stdio.h>
 
 #define PSL_MaxOpStack_Size	300000	/* As of GhostSCript 9.50; see declaration in gs_init.ps */
@@ -67,6 +70,7 @@ extern "C" {
 #define PSL_MARC		((int)'m')
 #define PSL_PENTAGON		((int)'n')
 #define PSL_DOT			((int)'p')
+#define PSL_SPHERE		((int)'P')
 #define PSL_RECT		((int)'r')
 #define PSL_RNDRECT		((int)'R')
 #define PSL_SQUARE		((int)'s')
@@ -80,6 +84,8 @@ extern "C" {
 
 /* PSL codes for vector attributes */
 
+#define BIT(no)		((unsigned int)(1 << (no)))
+
 enum PSL_enum_vecattr {
 	PSL_VEC_ARROW		= 0,		/* Default head symbol is arrow */
 	PSL_VEC_TERMINAL	= 1,		/* Cross-bar normal to vector */
@@ -91,27 +97,31 @@ enum PSL_enum_vecattr {
 	PSL_VEC_BEGIN		= 1,		/* Place vector head at beginning of vector. Add PSL_VEC_BEGIN_L for left only, PSL_VEC_BEGIN_R for right only */
 	PSL_VEC_END			= 2,		/* Place vector head at end of vector.  Add PSL_VEC_END_L for left only, and PSL_VEC_END_R for right only */
 	PSL_VEC_HEADS		= 3,		/* Mask for either head end */
-	PSL_VEC_BEGIN_L		= 4,		/* Left-half head at beginning */
-	PSL_VEC_BEGIN_R		= 8,		/* Right-half head at beginning */
-	PSL_VEC_END_L		= 16,		/* Left-half head at end */
-	PSL_VEC_END_R		= 32,		/* Right-half head at end */
+	PSL_VEC_BEGIN_L		= BIT(2),	/* Left-half head at beginning */
+	PSL_VEC_BEGIN_R		= BIT(3),	/* Right-half head at beginning */
+	PSL_VEC_END_L		= BIT(4),	/* Left-half head at end */
+	PSL_VEC_END_R		= BIT(5),	/* Right-half head at end */
 	PSL_VEC_JUST_B		= 0,		/* Align vector beginning at (x,y) */
-	PSL_VEC_JUST_C		= 64,		/* Align vector center at (x,y) */
-	PSL_VEC_JUST_E		= 128,		/* Align vector end at (x,y) */
-	PSL_VEC_JUST_S		= 256,		/* Align vector center at (x,y) */
-	PSL_VEC_ANGLES		= 512,		/* Got start/stop angles instead of az, length */
-	PSL_VEC_POLE		= 1024,		/* Got pole of small/great circle */
-	PSL_VEC_OUTLINE		= 2048,		/* Draw vector head outline using default pen */
-	PSL_VEC_OUTLINE2	= 4096,		/* Draw vector head outline using supplied v_pen */
-	PSL_VEC_FILL		= 8192,		/* Fill vector head using default fill */
-	PSL_VEC_FILL2		= 16384,	/* Fill vector head using supplied v_fill) */
-	PSL_VEC_MARC90		= 32768,	/* Matharc only: if angles subtend 90, draw straight angle symbol */
-	PSL_VEC_OFF_BEGIN	= 65536,	/* Starting point of vector should be moved a distance along the line */
-	PSL_VEC_OFF_END		= 131072,	/* End point of vector should be moved a distance along the line */
-	PSL_VEC_MID_FWD		= 262144,	/* End point of vector should be moved a distance along the line */
-	PSL_VEC_MID_BWD		= 524288,	/* End point of vector should be moved a distance along the line */
-	PSL_VEC_COMPONENTS	= 1048576,	/* Not yet needed in postscriptlight: Got vector dx, dy Cartesian components */
-	PSL_VEC_SCALE		= 2097152};	/* Not yet needed in postscriptlight: If not set we determine the required inch-to-degree scale */
+	PSL_VEC_JUST_C		= BIT(6),	/* Align vector center at (x,y) */
+	PSL_VEC_JUST_E		= BIT(7),	/* Align vector end at (x,y) */
+	PSL_VEC_JUST_S		= BIT(8),	/* Align vector center at (x,y) */
+	PSL_VEC_ANGLES		= BIT(9),	/* Got start/stop angles instead of az, length */
+	PSL_VEC_POLE		= BIT(10),	/* Got pole of small/great circle */
+	PSL_VEC_OUTLINE		= BIT(11),	/* Draw vector head outline using default pen */
+	PSL_VEC_OUTLINE2	= BIT(12),	/* Draw vector head outline using supplied v_pen */
+	PSL_VEC_FILL		= BIT(13),	/* Fill vector head using default fill */
+	PSL_VEC_FILL2		= BIT(14),	/* Fill vector head using supplied v_fill) */
+	PSL_VEC_MARC90		= BIT(15),	/* Matharc only: if angles subtend 90, draw straight angle symbol */
+	PSL_VEC_OFF_BEGIN	= BIT(16),	/* Starting point of vector should be moved a distance along the line */
+	PSL_VEC_OFF_END		= BIT(17),	/* End point of vector should be moved a distance along the line */
+	PSL_VEC_MID_FWD		= BIT(18),	/* End point of vector should be moved a distance along the line */
+	PSL_VEC_MID_BWD		= BIT(19),	/* End point of vector should be moved a distance along the line */
+	PSL_VEC_COMPONENTS	= BIT(20),	/* Not yet needed in postscriptlight: Got vector dx, dy Cartesian components */
+	PSL_VEC_SCALE		= BIT(21),	/* Not yet needed in postscriptlight: If not set we determine the required inch-to-degree scale */
+	PSL_VEC_LINE		= BIT(22),	/* Flag that we are adding vector heads to a line, not a stand-alone vector */
+	PSL_VEC_MAGNIFY		= BIT(23),	/* Flag that we are adding vector heads to a line, not a stand-alone vector */
+	PSL_VEC_FIXED		= BIT(24),	/* Flag that we were given a fixed length to override for each vector */
+	PSL_VEC_MAGCPT		= BIT(25)};	/* Flag that says use user data magnitude as internal data for CPT lookup */
 
 enum PSL_enum_vecdim {	/* Indices into the dim[] array passed to psl_vector */
 	PSL_VEC_XTIP 			= 0,	/* x-coordinate of tip of vector in inches */
@@ -159,6 +169,7 @@ enum PSL_enum_matharcdim {	/* Indices into the dim[] array passed to psl_matharc
 #define PSL_vec_side(status,head) (((status>>(2+2*head))&3) ? 2*((status>>(2+2*head))&3)-3 : 0)	/* Return side selection for this head as 0,-1,+1 */
 #define PSL_vec_outline(status) ((status&PSL_VEC_OUTLINE) || (status&PSL_VEC_OUTLINE2))	/* Return true if outline is currently selected */
 #define PSL_vec_fill(status) ((status&PSL_VEC_FILL) || (status&PSL_VEC_FILL2))		/* Return true if fill is currently selected */
+#define PSL_vec_headcheck(status) (((status)&PSL_VEC_LINE) == 0)	/* Flag when vector head is actually the end point of a line so we should not consider length a factor to exclude heads */
 
 /* PSL codes for arguments of PSL_beginplot and other routines */
 
@@ -190,6 +201,8 @@ enum PSL_enum_const {PSL_CM	= 0,
 	PSL_OUTLINE		= 1,
 	PSL_LINEAR		= 0,
 	PSL_BEZIER		= 1,
+	PSL_FILL_TRANSP		= 0,
+	PSL_PEN_TRANSP		= 1,
 	PSL_MAX_EPS_FONTS	= 6,
 	PSL_MAX_DIMS		= 13,		/* Max number of dim arguments to PSL_plot_symbol */
 	PSL_N_PATTERNS		= 91,		/* Current number of predefined patterns + 1, # 91 is user-supplied */
@@ -300,6 +313,14 @@ enum PSL_enum_err {PSL_BAD_VALUE = -99,	/* Bad value */
 	PSL_NO_SESSION,		/* No active session */
 	PSL_NO_ERROR = 0};	/* No errors, all is OK */
 
+/* WHen we scan PostScript files to fine where the highres bounding box
+ * start we know we have a line of a fixed length with plenty of space to
+ * be rewritten without having to duplicate the entire file. As of now, we
+ * enforce 64 characters for that line and use this amount to fseek back
+ * to overwrite the highres line with actual values determined by gs. */
+	
+#define PSL_HIGHRES_LINE_LEN	64
+
 /*--------------------------------------------------------------------
  *			PSL PARAMETERS DEFINITIONS
  *--------------------------------------------------------------------*/
@@ -320,9 +341,11 @@ struct PSL_CTRL {
 		int runmode;			/* Nonzero if we are being called from a multi-module environment (0 for commandline)	*/
 		int unit;			/* 0 = cm, 1 = inch, 2 = meter			*/
 		int copies;			/* Number of copies for this plot		*/
+		int layer_transp;		/* 0 = no layer transparency, 1 -t was used	*/
 		double page_rgb[4];		/* RGB color for background paper [white]	*/
 		double page_size[2];		/* Width and height of paper used in points	*/
 		double magnify[2];		/* Global scale values [1/1]			*/
+		double transparencies[2];	/* Current layer transparencies			*/
 	} init;
 	struct CURRENT {	/* Variables and settings that changes via PSL_* calls */
 		char string[PSL_BUFSIZ];	/* Last text string plotted			*/
@@ -335,8 +358,8 @@ struct PSL_CTRL {
 		double linewidth;		/* Current pen thickness			*/
 		double rgb[3][4];		/* Current stroke, fill, and fs fill rgb	*/
 		double offset;			/* Current setdash offset			*/
-		double transparency;		/* Current transparency	[deprecated]			*/
-		double transparencies[2];		/* Current transparencies				*/
+		double transparency;		/* Current transparency	[deprecated]		*/
+		double transparencies[2];	/* Current transparencies			*/
 		double fontsize;		/* Current font size				*/
 		double subsupsize;		/* Fractional size of super/sub-scripts		*/
 		double scapssize;		/* Fractional size of small caps		*/
@@ -379,6 +402,7 @@ struct PSL_CTRL {
 		int deflate_level; 		/* Compression level for DEFLATE (1-9, default 0) */
 		int call_level; 		/* Level in a series of module calls from GMT */
 		int color_mode;			/* 0 = rgb, 1 = cmyk, 2 = hsv (only 1-2 for images)	*/
+		bool no_quantization;		/* Skip RGB image quantization and indexed-color output [false] */
 		int line_cap;			/* 0, 1, or 2 for butt, round, or square [butt]	*/
 		int line_join;			/* 0, 1, or 2 for miter, arc, or bevel [miter]	*/
 		int miter_limit;		/* Acute angle threshold 0-180; 0 means PS default [0] */
@@ -455,7 +479,10 @@ EXTERN_MSC int PSL_plotparagraphbox (struct PSL_CTRL *PSL, double x, double y, d
 EXTERN_MSC int PSL_plotpoint (struct PSL_CTRL *PSL, double x, double y, int pen);
 EXTERN_MSC int PSL_plotbox (struct PSL_CTRL *PSL, double x0, double y0, double x1, double y1);
 EXTERN_MSC int PSL_plotpolygon (struct PSL_CTRL *PSL, double *x, double *y, int n);
+EXTERN_MSC int PSL_plotgradienttriangle (struct PSL_CTRL *PSL, double *x, double *y, double *rgb, int steps);
+EXTERN_MSC int PSL_plotgradienttriangle_gouraud (struct PSL_CTRL *PSL, double *x, double *y, double *rgb);
 EXTERN_MSC int PSL_plotsegment (struct PSL_CTRL *PSL, double x0, double y0, double x1, double y1);
+EXTERN_MSC int PSL_plotline_clipped_by_textbox (struct PSL_CTRL *PSL, double x0, double y0, double x1, double y1, double fontsize, char *text, double angle, int justify, double offset[2]);
 EXTERN_MSC int PSL_plotsymbol (struct PSL_CTRL *PSL, double x, double y, double param[], int symbol);
 EXTERN_MSC int PSL_plottext (struct PSL_CTRL *PSL, double x, double y, double fontsize, char *text, double angle, int justify, int mode);
 EXTERN_MSC int PSL_plottextbox (struct PSL_CTRL *PSL, double x, double y, double fontsize, char *text, double angle, int justify, double offset[], int mode);
@@ -469,6 +496,7 @@ EXTERN_MSC int PSL_setdefaults (struct PSL_CTRL *PSL, double xyscales[], double 
 EXTERN_MSC int PSL_setdash (struct PSL_CTRL *PSL, char *pattern, double offset);
 EXTERN_MSC int PSL_setfill (struct PSL_CTRL *PSL, double rgb[], int outline);
 EXTERN_MSC int PSL_setfont (struct PSL_CTRL *PSL, int font_no);
+EXTERN_MSC int PSL_setrgb (struct PSL_CTRL *PSL, double rgb[]);
 EXTERN_MSC int PSL_setfontdims (struct PSL_CTRL *PSL, double supsub, double scaps, double sup_lc, double sup_uc, double sdown);
 EXTERN_MSC int PSL_setformat (struct PSL_CTRL *PSL, int n_decimals);
 EXTERN_MSC int PSL_setimage (struct PSL_CTRL *PSL, int image_no, char *imagefile, unsigned char *image, int image_dpi, unsigned int dim[], double f_rgb[], double b_rgb[]);

@@ -1,7 +1,18 @@
 /*--------------------------------------------------------------------
  *
- *    Copyright (c) 2005-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
- *    See README file for copying and redistribution conditions.
+ *	Copyright (c) 2005-2025 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	See LICENSE.TXT file for copying and redistribution conditions.
+ *
+ *	This program is free software; you can redistribute it and/or modify
+ *	it under the terms of the GNU Lesser General Public License as published by
+ *	the Free Software Foundation; version 3 or any later version.
+ *
+ *	This program is distributed in the hope that it will be useful,
+ *	but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *	GNU Lesser General Public License for more details.
+ *
+ *	Contact info: www.generic-mapping-tools.org
  *--------------------------------------------------------------------*/
 /*
  * mgd77convert allows for format conversions between three file formats:
@@ -21,6 +32,7 @@
  */
 
 #include "gmt_dev.h"
+#include "longopt/mgd77convert_inc.h"
 #include "mgd77.h"
 
 #define THIS_MODULE_CLASSIC_NAME	"mgd77convert"
@@ -137,7 +149,6 @@ static int parse (struct GMT_CTRL *GMT, struct MGD77CONVERT_CTRL *Ctrl, struct G
 
 			case 'L':	/* Determine level of error/warning checking and log destination */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->L.active);
-				Ctrl->L.active = true;
 				for (i = 0; opt->arg[i]; i++) {
 					if (opt->arg[i] == 'e') Ctrl->L.mode |= 2;
 					if (opt->arg[i] == 'w') Ctrl->L.mode |= 1;
@@ -146,7 +157,6 @@ static int parse (struct GMT_CTRL *GMT, struct MGD77CONVERT_CTRL *Ctrl, struct G
 				break;
 			case 'F':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->F.active);
-				Ctrl->F.active = true;
 				switch (opt->arg[0]) {
 					case 'a':		/* Standard ASCII MGD77 file */
 						Ctrl->F.format = MGD77_FORMAT_M77;
@@ -171,7 +181,6 @@ static int parse (struct GMT_CTRL *GMT, struct MGD77CONVERT_CTRL *Ctrl, struct G
 				break;
 			case 'T':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->T.active);
-				Ctrl->T.active = true;
 				code_pos = 0;
 				if (opt->arg[code_pos] == '+')
 					Ctrl->T.mode = true, code_pos++;	/* Force overwriting existing files */
@@ -202,21 +211,21 @@ static int parse (struct GMT_CTRL *GMT, struct MGD77CONVERT_CTRL *Ctrl, struct G
 			case '4':	/* Selected high-resolution 4-byte integer MGD77+ format for mag, diur, faa, eot [2-byte integer] */
 				if (gmt_M_compat_check (GMT, 4)) {
 					GMT_Report (API, GMT_MSG_COMPAT, "-4 is deprecated; use -D instead next time.\n");
-					Ctrl->D.active = true;
+					n_errors += gmt_M_repeated_module_option (API, Ctrl->D.active);
 				}
 				else
-					n_errors += gmt_default_error (GMT, opt->option);
+					n_errors += gmt_default_option_error (GMT, opt);
 				break;
 			case 'C':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->C.active);
-				Ctrl->C.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 			case 'D':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->D.active);
-				Ctrl->D.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 			default:	/* Report bad options */
-				n_errors += gmt_default_error (GMT, opt->option);
+				n_errors += gmt_default_option_error (GMT, opt);
 				break;
 		}
 	}
@@ -258,7 +267,7 @@ EXTERN_MSC int GMT_mgd77convert (void *V_API, int mode, void *args) {
 
 	/* Parse the command-line arguments */
 
-	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, NULL, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
+	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, module_kw, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
 	if (GMT_Parse_Common (API, THIS_MODULE_OPTIONS, options)) Return (API->error);
 	Ctrl = New_Ctrl (GMT);	/* Allocate and initialize a new control structure */
 	if ((error = parse (GMT, Ctrl, options)) != 0) Return (error);

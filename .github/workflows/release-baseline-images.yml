@@ -1,0 +1,60 @@
+# Upload the ZIP archive of baseline images as a release asset
+
+name: Upload baseline images
+
+# Only run for releases
+on:
+  release:
+    types:
+      - published
+
+jobs:
+  upload-baseline:
+    name: Upload baseline images
+    runs-on: ubuntu-latest
+    if: github.repository == 'GenericMappingTools/gmt'
+
+    permissions:
+      # To write assets to GitHub release
+      contents: write
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6.0.2
+
+    - name: Setup data version control (DVC)
+      uses: iterative/setup-dvc@v2
+
+    - name: Pull baseline image data from dvc remote
+      id: dvc-pull
+      continue-on-error: true
+      run: |
+        dvc remote modify origin url https://${DAGSHUB_TOKEN}@dagshub.com/GenericMappingTools/gmt.dvc --local
+        dvc pull --remote origin --no-run-cache
+      env:
+        DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
+
+    - name: Download DVC cache from GitHub Artifacts and restore baseline image data
+      if: steps.dvc-pull.outcome == 'failure'
+      run: |
+        gh run download -n dvc-cache -D .dvc/cache/
+        dvc checkout --force
+      env:
+        GH_TOKEN: ${{ github.token }}
+
+    - name: Create the baseline image asset in zip format
+      run: |
+        mkdir baseline-images
+        mkdir baseline-images/test
+        mkdir baseline-images/examples
+        mkdir baseline-images/scripts
+        cp -r test/baseline/* baseline-images/test
+        cp doc/examples/images/*.ps baseline-images/examples
+        cp doc/scripts/images/*.ps baseline-images/scripts
+        zip -r baseline-images baseline-images/ -x "*.dvc"
+        shasum -a 256 baseline-images.zip
+
+    - name: Upload baseline image as a release asset
+      run: gh release upload ${{ github.ref_name }} baseline-images.zip
+      env:
+        GH_TOKEN: ${{ github.token }}

@@ -1,6 +1,5 @@
 #
-#
-# Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+# Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
 # See LICENSE.TXT file for copying and redistribution conditions.
 #
 # This program is free software; you can redistribute it and/or modify
@@ -67,4 +66,5 @@ install (DIRECTORY examples
 	PATTERN "CMakeLists.txt" EXCLUDE
 	PATTERN "gmt.history" EXCLUDE
 	PATTERN ".DS_Store" EXCLUDE
+	PATTERN "*.dvc" EXCLUDE
 	REGEX "[.](cmake|in|ps)$" EXCLUDE)

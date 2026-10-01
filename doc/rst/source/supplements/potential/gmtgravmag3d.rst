@@ -1,9 +1,9 @@
 .. index:: ! gmtgravmag3d
 .. include:: ../module_supplements_purpose.rst_
 
-************
-gmtgravmag3d
-************
+*********
+gravmag3d
+*********
 
 |gmtgravmag3d_purpose|
 
@@ -12,17 +12,22 @@ Synopsis
 
 .. include:: ../../common_SYN_OPTs.rst_
 
-**gmt gravmag3d** *xyz_file* |-T|\ **v**\ *vert_file* OR |-T|\ **r\|s**\ *raw_file* OR |-M|\ **+s**\ *body,params*
+**gmt gravmag3d** *xyz_file* |-T|\ *vert_file*\ **+v**\ [**+n**]\ OR |-T|\ *raw_file*\ **+r\|+s**\ [**+n**]\ OR |-M|\ **+s**\ *body,params*
 [ |-C|\ *density* ]
 [ |-E|\ *thickness* ]
 [ |-F|\ *xy_file* ]
 [ |-G|\ *outgrid* ]
 [ |-H|\ *f_dec*/*f_dip*/*m_int*/*m_dec*/*m_dip* ]
 [ |-L|\ *z_observation* ]
+[ |-Q| ]
 [ |-S|\ *radius* ]
 [ |-Z|\ *level* ]
 [ |SYN_OPT-V| ]
 [ **-fg**]
+[ |SYN_OPT-h| ]
+[ |SYN_OPT-i| ]
+[ |SYN_OPT-o| ]
+[ |SYN_OPT-r| ]
 [ |SYN_OPT--| ]
 
 |No-spaces|
@@ -40,7 +45,7 @@ Required Arguments (not all)
 .. _-C:
 
 **-C**\ *density*
-    Sets body density in SI. This option is mutually exclusive with **-H**.
+    Sets body density in SI. This option is mutually exclusive with |-H|.
 
 .. _-H:
 
@@ -53,7 +58,7 @@ Required Arguments (not all)
 
 **-F**\ *xy_file*
     Provide locations where the anomaly will be computed. Note this
-    option is mutually exclusive with **-G**.
+    option is mutually exclusive with |-G|.
 
 .. _-G:
 
@@ -93,16 +98,21 @@ Required Arguments (not all)
 
 .. _-T:
 
-**-Tv**\ *vert_file* (must have when passing a *xyz_file*) OR **-Tr\|s**\ *raw_file*
-    Gives names of a xyz and vertex (**-Tv**\ *vert_file*) files defining a close surface.
+**-T**\ *vert_file*\ **+v**\ [**+n**] (must have when passing a *xyz_file*) OR **-T**\ *raw_file*\ **+r\|+s**\ [**+n**]\
+    Gives names of a xyz and vertex (**-T**\ *vert_file*\ **+v**) files defining a closed surface.
     The file formats correspond to the output of the :doc:`triangulate </triangulate>` program.
     The *xyz* file can have 3, 4, 5, 6 or 8 columns. In first case (3 columns) the magnetization (or density) are
-    assumed constant (controlled by **-C** or **-H**). Following cases are: 4 columns -> 4rth col magnetization intensity;
+    assumed constant (controlled by |-C| or |-H|). Following cases are: 4 columns -> 4rth col magnetization intensity;
     5 columns: mag, mag dip; 6 columns: mag, mag dec, mag dip; 8 columns: field dec, field dip, mag, mag dec, mag dip.
-    When n columns > 3 the third argument of the **-H** option is ignored. A *raw* format (selected by the **-Tr** option)
-    is a file with N rows (one per triangle) and 9 columns corresponding to the x,y,x coordinates of each of the three
-    vertex of each triangle. Alternatively, the **-Ts** option indicates that the surface file is in the ASCII STL
+    When n columns > 3 the third argument of the |-H| option is ignored. A *raw* format (selected with the **-T+r** option)
+    is a file with N rows (one per triangle) and 9 columns corresponding to the *x, y, z* coordinates of each of the three
+    vertex of each triangle. Alternatively, the **-T+s** option indicates that the surface file is in the ASCII STL
     (Stereo Lithographic) format. These two type of files are used to provide a closed surface.
+
+    The closed surface formats (_STL_ or _raw_) are assumed to be provided with the facets (triangles) following the
+    counter-clockwise order. If that is not the case, _i.e._ they are clockwise oriented, append the **+n** modifier to
+    bring them to the expected order. However, this order may not be easy to check. In case of doubt, compute the gravity
+    anomaly caused by the body and see if it has the expected signal.
 
 Optional Arguments
 ------------------
@@ -115,20 +125,27 @@ Optional Arguments
 .. _-E:
 
 **-E**\ [*thickness*]
-    give layer thickness in m [Default = 0 m]. Use this option only when
+    Give layer thickness in m [Default = 0 m]. Use this option only when
     the triangles describe a non-closed surface and you want the anomaly
     of a constant thickness layer.
 
 .. _-L:
 
 **-L**\ [*z_observation*]
-    sets level of observation [Default = 0]. That is the height (z) at
+    Sets level of observation [Default = 0]. That is the height (z) at
     which anomalies are computed.
+
+.. _-Q:
+
+**-Q**
+    Use this option if the indices file (**-T+v**) is 1-based instead of the default (C) 0-based.
+    Normally this option is useful specially when using GMT.jl or GMTMEX where indices are 1-based
+    and bodies may have been created in those environments.
 
 .. _-S:
 
 **-S**\ *radius*
-    search radius in km. Triangle centroids that are further away than
+    Search radius in km. Triangle centroids that are further away than
     *radius* from current output point will not be taken into account.
     Use this option to speed up computation at expenses of a less
     accurate result.
@@ -136,7 +153,7 @@ Optional Arguments
 .. _-Z:
 
 **-Z**\ [*level*]
-    level of reference plane [Default = 0]. Use this option when the
+    Level of reference plane [Default = 0]. Use this option when the
     triangles describe a non-closed surface and the volume is defined
     from each triangle and this reference level. An example will be the
     hater depth to compute a Bouguer anomaly.
@@ -144,6 +161,16 @@ Optional Arguments
 **-fg**
    Geographic grids (dimensions of longitude, latitude) will be converted to
    meters via a "Flat Earth" approximation using the current ellipsoid parameters.
+
+.. |Add_-h| replace:: Not used with binary data.
+.. include:: ../../explain_-h.rst_
+
+.. include:: ../../explain_-icols.rst_
+
+.. include:: ../../explain_-ocols.rst_
+
+.. |Add_nodereg| unicode:: 0x20 .. just an invisible code
+.. include:: ../../explain_nodereg.rst_
 
 .. include:: ../../explain_help.rst_
 
@@ -166,12 +193,13 @@ See Also
 --------
 
 :doc:`gmt </gmt>`, :doc:`grdgravmag3d`,
+:doc:`gravprisms </supplements/potential/gravprisms>`,
 :doc:`talwani2d </supplements/potential/talwani2d>`,
 :doc:`talwani3d </supplements/potential/talwani3d>`
 
 Reference
 ---------
 
-Okabe, M., Analytical expressions for gravity anomalies due to
+Okabe, M., 1979, Analytical expressions for gravity anomalies due to
 polyhedral bodies and translation into magnetic anomalies, *Geophysics*,
-44, (1979), p 730-741.
+44, 730-741.

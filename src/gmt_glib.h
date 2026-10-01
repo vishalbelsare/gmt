@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -30,15 +30,21 @@
    These are used only GLIB based multi-threading */
 
 #ifndef GMT_GLIB_H
+#define GMT_GLIB_H
 
 #ifdef HAVE_GLIB_GTHREAD
 #include <glib.h>
+
+#define GMT_xg_OPT " [-x[[-]<n>]] "  /* Must add spaces and brackets here and place via %s since it may be blank */
+#define GMT_ADD_xg_OPT   "x"
 
 #define GMT_declare_gmutex static GMutex mutex;
 #define GMT_set_gmutex g_mutex_lock (&mutex);
 #define GMT_unset_gmutex g_mutex_unlock (&mutex);
 
-#else
+#else    /* No GLIB support */
+#define GMT_xg_OPT " "
+#define GMT_ADD_xg_OPT   ""
 
 #define GMT_declare_gmutex
 #define GMT_set_gmutex

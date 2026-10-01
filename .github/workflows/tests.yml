@@ -4,28 +4,47 @@
 name: Tests
 
 on:
-  # pull_request:
   push:
     branches:
       - master
       - 6.[0-9]+
-    paths:
-      - 'src/**'
-      - 'test/**'
-      - 'share/**'
-      - 'doc/examples/**'
-      - 'doc/scripts/**'
-      - '.github/workflows/**'
-      - 'ci/**'
+  pull_request:
+  workflow_dispatch:
 
 defaults:
   run:
     # default to use bash shell
-    shell: bash
+    shell: bash -el {0}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
+  changes:
+    name: Detect relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      # paths-filter needs a checkout for push events; on PRs it uses the API
+      - uses: actions/checkout@v6.0.2
+
+      - uses: dorny/paths-filter@v4.0.3
+        id: filter
+        with:
+          filters: |
+            relevant:
+              - 'src/**'
+              - 'test/**'
+              - 'doc/examples/**'
+              - 'doc/scripts/**'
+              - '.github/workflows/tests.yml'
+
   test:
     name: ${{ matrix.name }}
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
 
     env:
@@ -46,24 +65,23 @@ jobs:
           - name: Linux
             os: ubuntu-latest
           - name: macOS
-            os: macos-latest
+            os: macos-15-intel # macos-14 use M1 chips, which causes many failures
           - name: Windows
             os: windows-latest
 
     steps:
-      - name: Cancel Previous Runs
-        uses: styfle/cancel-workflow-action@0.9.1
-
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6.0.2
 
       - name: Setup vcpkg (Windows)
-        uses: dawidd6/action-download-artifact@v2.16.0
-        with:
-          workflow: ci-caches.yml
-          name: vcpkg-cache
-          path: C:\vcpkg\installed\
+        run: gh run download -n vcpkg-cache -D C:/vcpkg/installed/
         if: runner.os == 'Windows'
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Setup micromamba
+        uses: mamba-org/setup-micromamba@v3.2.1
+        if: runner.os == 'macOS'
 
       - name: Install GMT dependencies
         run: |
@@ -74,24 +92,22 @@ jobs:
         env:
           EXCLUDE_OPTIONAL: ${{ matrix.EXCLUDE_OPTIONAL }}
 
-      - name: Cache GSHHG and DCW data
-        uses: actions/cache@v2
-        id: cache-coastline
-        with:
-          path: ${{ env.COASTLINEDIR }}
-          key: coastline-${{ hashFiles('ci/download-coastlines.sh') }}
+      - name: Add Ghostscript registry so that GraphicsMagick can find it [Windows]
+        shell: pwsh
+        run: |
+          New-Item -Path "HKLM:\Software\GPL Ghostscript"
+          New-Item -Path "HKLM:\Software\GPL Ghostscript\10.03.0"
+          New-ItemProperty -Path "HKLM:\Software\GPL Ghostscript\10.03.0" -Name GS_DLL -PropertyType String -Value "C:\Miniconda\Library\bin\gsdll64.dll"
+          New-ItemProperty -Path "HKLM:\Software\GPL Ghostscript\10.03.0" -Name GS_LIB -PropertyType String -Value "C:\Miniconda\Library\bin;C:\Miniconda\Library\lib;C\Miniconda\Library\Font;C:\Miniconda\Library\fonts"
+        if: runner.os == 'Windows'
 
-      - name: Download coastlines
-        run: bash ci/download-coastlines.sh
-        if: steps.cache-coastline.outputs.cache-hit != 'true'
+      - name: Download GSHHG and DCW data
+        run: gh run download -n coastline-cache -D coastline
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Configure GMT
-        run: |
-          if [ "$RUNNER_OS" != "Windows" ]; then
-            bash ci/config-gmt-unix.sh
-          else
-            bash ci/config-gmt-windows.sh
-          fi
+        run: bash ci/config-gmt.sh
 
       - name: Compile GMT (Linux/macOS)
         run: |
@@ -101,29 +117,38 @@ jobs:
           cmake --build .
         if: runner.os != 'Windows'
 
+      - name: Setup MSVC (Windows)
+        if: runner.os == 'Windows'
+        uses: TheMrMilchmann/setup-msvc-dev@v4.1.0
+        with:
+          arch: x64
+
       - name: Compile GMT (Windows)
+        if: runner.os == 'Windows'
         shell: cmd
         run: |
           mkdir build
           cd build
-          call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           cmake -G Ninja .. -DCMAKE_TOOLCHAIN_FILE=%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake -DCMAKE_BUILD_TYPE=Release
           cmake --build .
-        if: runner.os == 'Windows'
 
-      - name: Download cached GMT remote data from GitHub Artifacts
-        uses: dawidd6/action-download-artifact@v2.16.0
-        with:
-          workflow: ci-caches.yml
-          name: gmt-cache
-          path: .gmt
-
-      # Move downloaded files to ~/.gmt directory and list them
-      - name: Move and list downloaded remote files
+      - name: Pull baseline image data from dvc remote
+        id: dvc-pull
+        continue-on-error: true
         run: |
-          mkdir -p ~/.gmt
-          mv .gmt/* ~/.gmt
-          ls -lRh ~/.gmt
+          dvc remote modify origin url https://${DAGSHUB_TOKEN}@dagshub.com/GenericMappingTools/gmt.dvc --local
+          dvc pull --remote origin --no-run-cache --force
+        env:
+          DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
+
+      - name: Download DVC cache from GitHub Artifacts and restore baseline image data
+        if: steps.dvc-pull.outcome == 'failure'
+        run: |
+          rm -rf .dvc/cache
+          gh run download -n dvc-cache -D .dvc/cache/
+          dvc checkout --force
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Install GMT
         run: |
@@ -131,6 +156,13 @@ jobs:
           cmake --build . --target install
           # Add GMT PATH to bin
           echo "${INSTALLDIR}/bin" >> $GITHUB_PATH
+
+      - name: Download cached GMT remote data from GitHub Artifacts
+        run: |
+          gh run download -n gmt-cache -D ~/.gmt/static/
+          touch ~/.gmt/static/gmt_data_server.txt ~/.gmt/static/gmt_hash_server.txt
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Check a few simple commands
         run: bash ci/simple-gmt-tests.sh
@@ -140,7 +172,6 @@ jobs:
         run: call ci/simple-gmt-tests.bat
         if: runner.os == 'Windows'
 
-      # Run full tests and rerun failed tests
       - name: Run full tests
         run: |
           set -x -e
@@ -163,12 +194,32 @@ jobs:
         if: runner.os == 'Windows'
 
       - name: Upload build directory if failed
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v7
         with:
           name: BuildDirectory-${{ runner.os }}
           path: build/
         if: failure()
 
-      - name: Upload test coverage
-        run: bash <(curl -s https://codecov.io/bash)
-        if: ${{ always() }}
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v6.0.1
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          fail_ci_if_error: false
+        if: always()
+
+  # Twin of "test" - see build-skip in build.yml.
+  test-skip:
+    name: ${{ matrix.name }}
+    needs: changes
+    if: needs.changes.outputs.relevant != 'true' && github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: Linux
+          - name: macOS
+          - name: Windows
+    steps:
+      - name: No-op (no relevant changes)
+        run: echo "Skipping - no changes relevant to this workflow"

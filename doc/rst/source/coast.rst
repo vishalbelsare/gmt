@@ -36,6 +36,7 @@ Synopsis
 [ |SYN_OPT-Y| ]
 [ |SYN_OPT-bo| ]
 [ |SYN_OPT-d| ]
+[ |SYN_OPT-g| ]
 [ |SYN_OPT-p| ]
 [ |SYN_OPT-t| ]
 [ |SYN_OPT--| ]
@@ -47,7 +48,8 @@ Description
 
 Plots grayshaded, colored, or textured land-masses [or
 water-masses] on maps and [optionally] draws coastlines, rivers, and
-political boundaries. Alternatively, it can (1) issue clip
+political boundaries from the Global Self-consistent, Hierarchical, 
+High-resolution Geography Database (GSHHG) dataset. Alternatively, it can (1) issue clip
 paths that will contain all land or all water areas, or
 (2) dump the data to an ASCII table. The data files come
 in 5 different resolutions: (**f**)ull, (**h**)igh, (**i**)ntermediate,
@@ -58,7 +60,9 @@ resolutions. If the user selects to paint the land-areas and does not
 specify fill of water-areas then the latter will be transparent (i.e.,
 earlier graphics drawn in those areas will not be overwritten).
 Likewise, if the water-areas are painted and no land fill is set then
-the land-areas will be transparent. A map projection must be supplied.
+the land-areas will be transparent. A map projection must be supplied. 
+At least one of options |-C|, |-G|, |-S|, |-E|, |-I|, |-N|, |-Q| and |-W|
+must be specified.
 
 Required Arguments
 ------------------
@@ -93,45 +97,69 @@ Optional Arguments
 
 **-C**\ *fill*\ [**+l**\|\ **+r**] :ref:`(more ...) <-Gfill_attrib>`
     Set the shade, color, or pattern for lakes and river-lakes [Default
-    is the fill chosen for "wet" areas (**-S**)]. Optionally, specify
+    is the fill chosen for "wet" areas (|-S|)]. Optionally, specify
     separate fills by appending **+l** for lakes or **+r** for
-    river-lakes, repeating the **-C** option as needed.
+    river-lakes, repeating the |-C| option as needed.
 
 .. _-D:
 
 **-D**\ *resolution*\ [**+f**]
-    Select the resolution of the data set to use ((**f**)ull,
+    Select the resolution of the GSHHG data set to use ((**f**)ull,
     (**h**)igh, (**i**)ntermediate, (**l**)ow, and (**c**)rude). The
     resolution drops off by 80% between data sets.
     Append **+f** to automatically select a lower resolution should the one
     requested not be available [abort if not found].
     Alternatively, choose (**a**)uto to automatically select the best
     resolution given the chosen map scale. [Default is **l** in classic mode
-    and **a** in modern mode].
+    and **a** in modern mode]. See `GSHHG five resolutions <https://github.com/GenericMappingTools/gshhg-gmt?tab=readme-ov-file#the-five-resolutions>`_ for more details.
 
 .. _-E:
 
-**-E**\ *code1,code2,...*\ [**+l**\|\ **L**][**+c**\|\ **C**][**+g**\ *fill*][**+p**\ *pen*][**+z**]
-    Select painting, clipping or dumping country polygons from the Digital Chart of the World.
-    This is another dataset independent of GSHHG and hence the **-A** and **-D** options do not apply.
-    Append one or more comma-separated countries using the
-    `2-character ISO 3166-1 alpha-2 convention <https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2>`_.
-    To select a state of a country (if available), append .state, e.g, US.TX for Texas.  To specify a
-    whole continent, prepend = to any of the continent codes AF (Africa),
-    AN (Antarctica), AS (Asia), EU (Europe), OC (Oceania),
-    NA (North America), or SA (South America).  Append **+l** to
-    just list the countries and their codes [no data extraction or plotting takes place].
-    Use **+L** to see states/territories for Argentina, Australia, Brazil, Canada, China, India, Russia and the US.
-    Finally, you can append **+l**\|\ **+L** to **-E**\ =\ *continent* or **-E**\ *code* to only list
-    countries in that continent or country; repeat if more than one continent or country is requested.
-    To set up clip paths based on your selection, append **+c** or **+C** for inside or outside (area between selection
-    and the map boundary) clipping, respectively.  To plot instead,
-    append **+p**\ *pen* to draw polygon outlines [no outline] and
-    **+g**\ *fill* to fill them [no fill].  One of **+c**\|\ **C**\|\ **g**\|\ **p** must be
-    specified unless **-M** is in effect, in which case only one **-E** option can be given;
-    append **+z** to place the country code in the segment headers via **-Z**\ *code* settings.
-    Otherwise, you may repeat **-E** to give different groups of items their own pen/fill settings.
-    If neither **-J** nor **-M** are set then we just print the **-R**\ *wesn* string.
+**-E**\ *code1,code2,...*\ [**+f**\ *file*][**+l**\|\ **L**\|\ **n**][**+c**\|\ **C**][**+e**][**+g**\ *fill*][**+p**\ *pen*][**+r**][**+R**][**+z**]
+    Select painting, clipping or dumping country polygons from the Digital Chart of the World (DCW).
+    This is another dataset independent of GSHHG and hence the |-A| and |-D| options do not apply. The following codes
+    are supported:
+
+    - Append one or more comma-separated countries using either the
+      `2-letter ISO 3166-1 alpha-2 convention <https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2>`_
+      (e.g., NO for Norway) or the full country name (e.g., Norway). Append .\ *state* to a country code to select a
+      state of a country (if available), e.g., US.TX for Texas.
+    - Append =\ *continent* to specify a continent, using the abbreviations AF (Africa),
+      AN (Antarctica), AS (Asia), EU (Europe), OC (Oceania), NA (North America), SA (South America) or WD (World).
+    - To specify a :ref:`DCW collection <dcw-collections>` or named region, give either the code or the full name.
+
+    The following modifiers are supported:
+
+    - **+f**\ *file* to indicate that we want to use another netCDF file than the default DCW file. *file*, without extension,
+      can be either just the absolute file name, case in which the `file.nc` is expected to be found in the
+      shared folder that also contains the `dcw-gmt.nc` file, or the full file name, case in which the `file`
+      can be located anywhere.
+    - **+l** to just list the countries and their codes (no data extraction or plotting takes place).
+    - **+L** to see states/territories for Argentina, Australia, Brazil, Canada, China, India, Norway, Russia and the US.
+    - **+l**\|\ **+L** to **-E**\ =\ *continent* or **-E**\ *code* to only list countries or states in that continent
+      or country, respectively; repeat if more than one continent or country is requested.
+    - **+n** to list the named :ref:`DCW collections <dcw-collections>` or regions (**-E**\ *code*\ **+n** will list
+      collections that contains the listed codes). All names are case-insensitive.
+    - **+c** to set up an inside clip path based on your selection.
+    - **+C** to set up an outside (area between selection and map boundary) clip path based on your selection.
+    - **+p**\ *pen* to draw polygon outlines [Default is no outline].
+    - **+e** to adjust the region boundaries to be multiples of the steps indicated by *inc*, *xinc*/*yinc*, or
+      *winc*/*einc*/*sinc*/*ninc*, while ensuring that the bounding box is adjusted by at least 0.25 times the
+      increment [Default is no adjustment], where *inc* can be positive to expand the region or negative to shrink
+      the region.
+    - **+g**\ *fill* to fill polygons [Default is no fill].
+    - **+r** to adjust the region boundaries to be multiples of the steps indicated by *inc*, *xinc*/*yinc*, or
+      *winc*/*einc*/*sinc*/*ninc* [Default is no adjustment]. For example, **-R**\ *FR*\ **+r**\ 1 will select the
+      national bounding box of France rounded to nearest integer degree, where *inc* can be positive to expand the
+      region or negative to shrink the region.
+    - **+R** to adjust the region by adding the amounts specified by *inc*, *xinc*/*yinc*, or
+      *winc*/*einc*/*sinc*/*ninc* [Default is no extension], where *inc* can be positive to expand the
+      region or negative to shrink the region.
+    - **+z** to place the country code in the segment headers via **-Z**\ *code* settings (for use with |-M|).
+
+    One of **+c**\|\ **C**\|\ **g**\|\ **p** must be specified unless |-M| is in effect, in which case only one
+    |-E| option can be given. Otherwise, you may repeat |-E| to give different groups of items their own pen/fill
+    settings. If neither |-J| nor |-M| are set then we just print the **-R**\ *wesn* string.
 
 .. _-F:
 
@@ -140,7 +168,7 @@ Optional Arguments
 
     Without further options, draws a rectangular border around any map scale (|-L|) or map rose (|-T|) using
     :term:`MAP_FRAME_PEN`. Used in combination with |-L| or |-T|.  Append **l** for map scale or **t** for map rose to
-    specify which plot embellisment the |-F| parameters should be applied to [default uses the same panel parameters for
+    specify which plot embellishment the |-F| parameters should be applied to [default uses the same panel parameters for
     all selected map embellishments]. The following modifiers can be appended to |-F|, with additional explanation and
     examples provided in the :ref:`Background-panel` cookbook section:
 
@@ -156,10 +184,10 @@ Optional Arguments
 
 **-I**\ *river*\ [/*pen*]
     Draw rivers. Specify the type of rivers and [optionally] append pen
-    attributes [Default pen: width = default, color = black, style =
+    attributes [Default pen: width = 0.25p, color = black, style =
     solid].
 
-    Choose from the list of river types below; repeat option **-I** as
+    Choose from the list of river types below; repeat option |-I| as
     often as necessary.
 
     - 0 = Double-lined rivers (river-lakes)
@@ -192,21 +220,25 @@ Optional Arguments
 **-M**
     Dump a single multisegment ASCII (or binary, see
     **-bo**) file to standard output. No plotting
-    occurs. Specify one of **-E**, **-I**, **-N** or **-W**.
-    **Note**: If **-M** is used with **-E** then **-R** or the **+r** modifier
-    to **-E** are not required as we automatically determine the region
-    given the selected geographic entities.  If using **-W** and you want
+    occurs. Specify one of |-E|, |-I|, |-N| or |-W|.
+    **Note**: If |-M| is used with |-E| then |-R| or the **+r** modifier
+    to |-E| are not required as we automatically determine the region
+    given the selected geographic entities.  If using |-W| and you want
     just certain levels (1-4) then use the full syntax **-W**\ *level*/\ *pen*
     and repeat for each level (pen is not used but required to parse the level correctly).
+
+    Since the resolution of the datasets typically are in the order
+    of hundreds of meters, consider reducing the number of decimals by
+    setting :term:`FORMAT_FLOAT_OUT`.
 
 .. _-N:
 
 **-N**\ *border*\ [/*pen*]
     Draw political boundaries. Specify the type of boundary and
-    [optionally] append pen attributes [Default pen: width = default,
+    [optionally] append pen attributes [Default pen: width = 0.25p,
     color = black, style = solid].
 
-    Choose from the list of boundaries below. Repeat option **-N** as
+    Choose from the list of boundaries below. Repeat option |-N| as
     often as necessary.
 
     - 1 = National boundaries
@@ -218,7 +250,6 @@ Optional Arguments
 
 **-Q**
     Mark end of existing clip path. No projection information is needed.
-    Also supply **-X** and **-Y** settings if you have moved since the clip started.
 
 .. _-S:
 
@@ -244,12 +275,12 @@ Optional Arguments
 
 **-W**\ [[*level*/]\ *pen*] :ref:`(more ...) <set-pens>`
     Draw shorelines [Default is no shorelines]. Append pen attributes
-    [Defaults: width = default, color = black, style = solid] which
+    [Defaults: width = 0.25p, color = black, style = solid] which
     apply to all four levels. To set the pen for each level differently,
     prepend *level*/, where *level* is 1-4 and represent coastline,
     lakeshore, island-in-lake shore, and lake-in-island-in-lake shore.
-    Repeat **-W** as needed. When specific level pens are set, those not
-    listed will not be drawn [Default draws all levels; but see **-A**].
+    Repeat |-W| as needed. When specific level pens are set, those not
+    listed will not be drawn [Default draws all levels; but see |-A|].
 
 .. |Add_-XY| replace:: |Add_-XY_links|
 .. include:: explain_-XY.rst_
@@ -262,6 +293,15 @@ Optional Arguments
 .. |Add_-d| unicode:: 0x20 .. just an invisible code
 .. include:: explain_-d.rst_
 
+.. _-g:
+
+**-gD**\ *dist*
+    Short version of the global **-g** option. Here it is used to set the *dist* distance, in map units,
+    higher than which we consider to have a gap. Useful for the Spilhaus projection (though we automatically set it)
+    and when line wrapping on dateline was not correctly detected. As an example of this, see for instance
+    the old issue `#3667 <https://github.com/GenericMappingTools/gmt/issues/3667>`_ that can be fixed
+    by adding **-gD**\ 1 to the command line.
+
 .. |Add_perspective| unicode:: 0x20 .. just an invisible code
 .. include:: explain_perspective.rst_
 
@@ -270,6 +310,35 @@ Optional Arguments
 .. include:: explain_help.rst_
 
 .. module_common_ends
+
+.. _dcw-collections:
+
+DCW Collections
+---------------
+
+The |-E| and |-R| options can be expanded to take the user's own custom collections
+and named regions.  Users can create a dcw.conf file and place it in their
+GMT user directory (typically ~/.gmt).  The format of the file is the same
+as the `dcw-collections.txt <https://github.com/GenericMappingTools/dcw-gmt/blob/master/dcw-collections.txt>`_ file distributed with DCW 2.1.0 or later::
+
+    # ~/.gmt/dcw.conf
+    # Arbitrary comments and blank lines anywhere
+
+    # The France-Italian union (2042-45) of gallery example 34.
+    tag: FRIT Franco-Italian Union
+    list: FR,IT
+    # Stay away from those dangerous eels!
+    tag: SARG Sargasso Sea
+    region: 70W/40W/20N/35N
+
+* Each *tag:* record must be immediately followed by either a *list:* (e.g. *list: FR,IT*, no space between codes)
+  or *region:* (e.g. *region: 70W/40W/20N/35N*) record.
+* All tags should be at least 3 characters long.
+  Either the *tag* or the *name* (if available) can be used to make selections in |-R| or |-E|.
+  Use quotes if *name* consists of more than one word (e.g. *"Franco-Italian Union"*).
+* The **-E+n** option will list the contents of the collection distributed with DCW as well
+  as any contents in ~/.gmt/dcw.conf. The latter file is consulted first and can be used to
+  override same-name tag selections in the system DCW file.
 
 Examples
 --------
@@ -329,7 +398,7 @@ The desired file is then sought for in the alternate directories.
 Bugs
 ----
 
-The options to fill (**-C** **-G** **-S**) may not always work if the
+The options to fill (|-C| |-G| |-S|) may not always work if the
 Azimuthal equidistant projection is chosen (**-Je**\|\ **E**). If the
 antipole of the projection is in the oceans it will most likely work. If
 not, try to avoid using projection center coordinates that are even
@@ -365,6 +434,10 @@ Antarctic Research. This data base contains various kinds of limiting
 lines for Antarctica and is available on CD-ROM. It is published by the
 Scientific Committee on Antarctic Research, Scott Polar Research
 Institute, Lensfield Road, Cambridge CB2 1ER, United Kingdom.
+
+**Note**: While the data sets used have copyrights that control their
+distribution, maps made with them are yours.  You do not need permission
+from us to use such figures in journals, for instance.
 
 .. module_note_ends
 

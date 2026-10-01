@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -25,6 +25,7 @@
  */
 
 #include "gmt_dev.h"
+#include "longopt/pslegend_inc.h"
 
 #define THIS_MODULE_CLASSIC_NAME	"pslegend"
 #define THIS_MODULE_MODERN_NAME	"legend"
@@ -34,7 +35,29 @@
 #define THIS_MODULE_NEEDS	"jr"
 #define THIS_MODULE_OPTIONS "->BJKOPRUVXYpqt" GMT_OPT("c")
 
+/* Various constants that control the multiple parameters needed for some symbols when no info is given */
+
+#define PSLEGEND_MAJOR_SCL		1.5			/* Ratio of major axis to normal isotropic symbol size */
+#define PSLEGEND_MINOR_SCL		0.55		/* Ratio of minor axis to normal isotropic symbol size */
+#define PSLEGEND_ROUND_SCL		0.1			/* Fraction of corner rounding for round rectangles */
+#define PSLEGEND_MAJOR_ANGLE	0			/* Angle of major axis for rotated ellipses */
+#define PSLEGEND_RECT_ANGLE		25			/* Angle of rotated rectangles */
+#define PSLEGEND_ANGLE_START	120			/* Start angle for wedge or math angle */
+#define PSLEGEND_ANGLE_STOP		420			/* Stop angle for wedge or math angle */
+#define PSLEGEND_MATH_SCL		0.6			/* Ratio of math angle radius to isotropic symbol size */
+#define PSLEGEND_MATH_SIZE		1.0			/* Head size is 100% of radius */
+#define PSLEGEND_FRONT_TICK		"-1"		/* One centered tick for fronts */
+#define PSLEGEND_FRONT_TICK_SCL	0.3			/* Ratio of front tick hight to normal isotropic symbol size */
+#define PSLEGEND_FRONT_SYMBOL	"+l+b"		/* Box to the left of the line is our default front symbol */
+#define PSLEGEND_VECTOR_ANGLE 	0.0			/* Angle of vector with horizontal */
+#define PSLEGEND_VECTOR_SIZE	0.4			/* Head size is 40% of length */
+#define PSLEGEND_VECTOR_ARG		"v%gi+jc+e"	/* Format for vector arg given head size */
+#define PSLEGEND_VECTOR_PEN		0.5			/* Head pen is half of vector pen width */
+#define PSLEGEND_INFO_HIDDEN	0			/* Index into use array for the hidden legend info */
+#define PSLEGEND_INFO_GIVEN		1			/* Index into use array for the CLI-given legend file */
+
 struct PSLEGEND_CTRL {
+	bool got_file;	/* True if an input file was given */
 	struct PSLEGEND_C {	/* -C<dx>[/<dy>] */
 		bool active;
 		double off[2];
@@ -42,7 +65,8 @@ struct PSLEGEND_CTRL {
 	struct PSLEGEND_D {	/* -D[g|j|n|x]<refpoint>+w<width>[/<height>][+j<justify>][+l<spacing>][+o<dx>[/<dy>]] */
 		bool active;
 		struct GMT_REFPOINT *refpoint;
-		double dim[2], off[2];
+		struct GMT_SCALED_RECT_DIM R;
+		double off[2];
 		double spacing;
 		int justify;
 	} D;
@@ -51,8 +75,10 @@ struct PSLEGEND_CTRL {
 		bool debug;			/* If true we draw guide lines */
 		struct GMT_MAP_PANEL *panel;
 	} F;
-	struct PSLEGEND_M {	/* -M */
+	struct PSLEGEND_M {	/* -M[e|h][e|h] */
 		bool active;
+		unsigned int order[2];
+		unsigned int n_items;
 	} M;
 	struct PSLEGEND_S {	/* -S<scale> */
 		bool active;
@@ -84,6 +110,8 @@ static void *New_Ctrl (struct GMT_CTRL *GMT) {	/* Allocate and initialize a new 
 
 	C->C.off[GMT_X] = C->C.off[GMT_Y] = GMT->session.u2u[GMT_PT][GMT_INCH] * GMT_FRAME_CLEARANCE;	/* 4 pt */
 	C->D.spacing = 1.1;
+	C->M.order[0] = PSLEGEND_INFO_GIVEN;	/* Default for classic mode */
+	C->M.n_items = 1;	/* Only one source, the specfile, is used */
 	C->S.scale = 1.0;	/* Full given size of symbols */
 	return (C);
 }
@@ -101,8 +129,8 @@ static int usage (struct GMTAPI_CTRL *API, int level) {
 
 	const char *name = gmt_show_name_and_purpose (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_PURPOSE);
 	if (level == GMT_MODULE_PURPOSE) return (GMT_NOERROR);
-	GMT_Usage (API, 0, "usage: %s [<specfile>] -D%s[+w<width>[/<height>]][+l<spacing>]%s [%s] [-C<dx>[/<dy>]] [-F%s] "
-		"[%s] [-M] %s%s%s[%s] [-S<scale>] [-T<file>] [%s] [%s] [%s] [%s] %s[%s] [%s] [%s] [%s]\n",
+	GMT_Usage (API, 0, "usage: %s [<specfile>] -D%s[+w<width>[/<height>]][+j<justify>][+l<spacing>]%s [%s] [-F%s] "
+		"[%s] [-M[<items>]] %s%s%s[%s] [-S<scale>] [-T<file>] [%s] [%s] [%s] [%s] %s[%s] [%s] [%s] [%s]\n",
 		name, GMT_XYANCHOR, GMT_OFFSET, GMT_B_OPT, GMT_PANEL, GMT_J_OPT, API->K_OPT, API->O_OPT, API->P_OPT, GMT_Rgeo_OPT,
 		GMT_U_OPT, GMT_V_OPT, GMT_X_OPT, GMT_Y_OPT, API->c_OPT, GMT_p_OPT, GMT_qi_OPT, GMT_t_OPT, GMT_PAR_OPT);
 
@@ -114,17 +142,21 @@ static int usage (struct GMTAPI_CTRL *API, int level) {
 
 	gmt_refpoint_syntax (API->GMT, "\n-D", "Specify position and size of the legend rectangle", GMT_ANCHOR_LEGEND, 1);
 	GMT_Usage (API, -2, "Specify legend width with +w<width>; <height> is optional [estimated from <specfile>]. "
-		"If only codes A, C, D, G, H, L, and S are used the <width> is optional as well. "
-		"The remaining arguments are optional:");
+		"If %% is appended then <width> is set to that fraction of the map width. If only codes A, C, D, G, H, L, "
+		"and S are used the <width> is optional as well. The remaining arguments are optional:");
 	gmt_refpoint_syntax (API->GMT, "D", NULL, GMT_ANCHOR_LEGEND, 2);
 	GMT_Usage (API, 3, " +l sets the line <spacing> factor in units of the current annotation font size [1.1].");
 	GMT_Message (API, GMT_TIME_NONE, "\n  OPTIONAL ARGUMENTS:\n");
 	GMT_Option (API, "B-");
-	GMT_Usage (API, 1, "\n-C<dx>[/<dy>]");
-	GMT_Usage (API, -2, "Set the clearance between legend frame and internal items [%gp].", GMT_FRAME_CLEARANCE);
+	//GMT_Usage (API, 1, "\n-C<dx>[/<dy>]");
+	//GMT_Usage (API, -2, "Set the clearance between legend frame and internal items [%gp].", GMT_FRAME_CLEARANCE);
 	gmt_mappanel_syntax (API->GMT, 'F', "Specify a rectangular panel behind the legend", 2);
 	GMT_Option (API, "J-,K");
-	GMT_Usage (API, 1, "\n-M Merge hidden and explicit legend information files (modern mode only).");
+	GMT_Usage (API, 1, "\n-M[<items>]");
+	GMT_Usage (API, -2, "Control how hidden and explicit legend information files are used (modern mode only).  Append one or both of:");
+	GMT_Usage (API, 3, "e: Select the explicit legend information given by <specfile>.");
+	GMT_Usage (API, 3, "h: Select the hidden legend information built via previous -l options.");
+	GMT_Usage (API, -2, "The order these are appended controls the read order [Default is he].");
 	GMT_Option (API, "O,P,R");
 	GMT_Usage (API, 1, "\n-S<scale>");
 	GMT_Usage (API, -2, "Scale all symbol sizes by <scale> [1].");
@@ -154,20 +186,19 @@ static int parse (struct GMT_CTRL *GMT, struct PSLEGEND_CTRL *Ctrl, struct GMT_O
 
 		switch (opt->option) {
 
-			case '<':	/* Input files */
-				if (GMT_Get_FilePath (API, GMT_IS_DATASET, GMT_IN, GMT_FILE_REMOTE, &(opt->arg))) n_errors++;;
+			case '<':	/* Input files, just check they are readable */
+				if (GMT_Get_FilePath (API, GMT_IS_DATASET, GMT_IN, GMT_FILE_REMOTE, &(opt->arg))) n_errors++;
+				Ctrl->got_file = true;
 				break;
 
 			/* Processes program-specific parameters */
 
 			case 'C':	/* Sets the clearance between frame and internal items */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->C.active);
-				Ctrl->C.active = true;
 				if ((n = gmt_get_pair (GMT, opt->arg, GMT_PAIR_DIM_DUP, Ctrl->C.off)) < 0) n_errors++;
 				break;
 			case 'D':	/* Sets position and size of legend */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->D.active);
-				Ctrl->D.active = true;
 				if (strlen (opt->arg) < 5 || strchr ("jgn", opt->arg[0]) || gmt_found_modifier (GMT, opt->arg, "jlow")) {	/* New syntax: 	*/
 					if ((Ctrl->D.refpoint = gmt_get_refpoint (GMT, opt->arg, 'D')) == NULL) {
 						n_errors++;	/* Failed basic parsing */
@@ -186,7 +217,8 @@ static int parse (struct GMT_CTRL *GMT, struct PSLEGEND_CTRL *Ctrl, struct GMT_O
 						if ((n = gmt_get_pair (GMT, string, GMT_PAIR_DIM_DUP, Ctrl->D.off)) < 0) n_errors++;
 					}
 					if (gmt_get_modifier (Ctrl->D.refpoint->args, 'w', string)) {
-						if ((n = gmt_get_pair (GMT, string, GMT_PAIR_DIM_NODUP, Ctrl->D.dim)) < 0) n_errors++;
+						if (gmt_rectangle_dimension (GMT, &Ctrl->D.R, 0.0, 0.0, string))
+							n_errors++;
 					}
 				}
 				else {	/* Backwards handling of old syntax. Args are args are [x]<x>/<y>/<width>[/<height>][/<justify>][/<dx>/<dy>] */
@@ -205,7 +237,7 @@ static int parse (struct GMT_CTRL *GMT, struct PSLEGEND_CTRL *Ctrl, struct GMT_O
 						n_errors += gmt_verify_expectations (GMT, gmt_M_type (GMT, GMT_IN, GMT_Y), gmt_scanf (GMT, yy, gmt_M_type (GMT, GMT_IN, GMT_Y), &Ctrl->D.refpoint->y), yy);
 						Ctrl->D.refpoint->mode = GMT_REFPOINT_MAP;
 					}
-					Ctrl->D.dim[GMT_X] = gmt_M_to_inch (GMT, txt_a);	/* Width is always given */
+					Ctrl->D.R.dim[GMT_X] = gmt_M_to_inch (GMT, txt_a);	/* Width is always given */
 					n -= 2;	/* Remove the x/y count */
 					switch (n) {
 						case 1: /* Only gave reference point and width; change default justify if -Dj */
@@ -216,11 +248,11 @@ static int parse (struct GMT_CTRL *GMT, struct PSLEGEND_CTRL *Ctrl, struct GMT_O
 							if (strlen (txt_b) == 2 && strchr ("LMRBCT", txt_b[GMT_X]) && strchr ("LMRBCT", txt_b[GMT_Y]))	/* Gave a 2-char justification code */
 								Ctrl->D.justify = gmt_just_decode (GMT, txt_b, PSL_NO_DEF);
 							else /* Got height */
-								Ctrl->D.dim[GMT_Y] = gmt_M_to_inch (GMT, txt_b);
+								Ctrl->D.R.dim[GMT_Y] = gmt_M_to_inch (GMT, txt_b);
 							break;
 						case 3:	/* Gave width and (height and justify) or (dx/dy) */
 							if (strlen (txt_c) == 2 && strchr ("LMRBCT", txt_c[GMT_X]) && strchr ("LMRBCT", txt_c[GMT_Y])) {	/* Gave a 2-char justification code */
-								Ctrl->D.dim[GMT_Y] = gmt_M_to_inch (GMT, txt_b);
+								Ctrl->D.R.dim[GMT_Y] = gmt_M_to_inch (GMT, txt_b);
 								Ctrl->D.justify = gmt_just_decode (GMT, txt_c, PSL_NO_DEF);
 							}
 							else {	/* Just got offsets */
@@ -232,12 +264,12 @@ static int parse (struct GMT_CTRL *GMT, struct PSLEGEND_CTRL *Ctrl, struct GMT_O
 							if (strlen (txt_b) == 2 && strchr ("LMRBCT", txt_b[GMT_X]) && strchr ("LMRBCT", txt_b[GMT_Y]))	/* Gave a 2-char justification code */
 								Ctrl->D.justify = gmt_just_decode (GMT, txt_b, PSL_NO_DEF);
 							else
-								Ctrl->D.dim[GMT_Y] = gmt_M_to_inch (GMT, txt_b);
+								Ctrl->D.R.dim[GMT_Y] = gmt_M_to_inch (GMT, txt_b);
 							Ctrl->D.off[GMT_X] = gmt_M_to_inch (GMT, txt_c);
 							Ctrl->D.off[GMT_Y] = gmt_M_to_inch (GMT, txt_d);
 							break;
 						case 5:	/* Got them all */
-							Ctrl->D.dim[GMT_Y] = gmt_M_to_inch (GMT, txt_b);
+							Ctrl->D.R.dim[GMT_Y] = gmt_M_to_inch (GMT, txt_b);
 							Ctrl->D.justify = gmt_just_decode (GMT, txt_c, PSL_NO_DEF);
 							Ctrl->D.off[GMT_X] = gmt_M_to_inch (GMT, txt_d);
 							Ctrl->D.off[GMT_Y] = gmt_M_to_inch (GMT, txt_e);
@@ -247,7 +279,6 @@ static int parse (struct GMT_CTRL *GMT, struct PSLEGEND_CTRL *Ctrl, struct GMT_O
 				break;
 			case 'F':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->F.active);
-				Ctrl->F.active = true;
 				if (gmt_getpanel (GMT, opt->option, opt->arg, &(Ctrl->F.panel))) {
 					gmt_mappanel_syntax (GMT, 'F', "Specify a rectangular panel behind the legend", 2);
 					n_errors++;
@@ -269,43 +300,54 @@ static int parse (struct GMT_CTRL *GMT, struct PSLEGEND_CTRL *Ctrl, struct GMT_O
 					Ctrl->F.panel->mode |= GMT_PANEL_FILL;
 				}
 				else
-					n_errors += gmt_default_error (GMT, opt->option);
+					n_errors += gmt_default_option_error (GMT, opt);
 				break;
 			case 'L':	/* Sets linespacing in units of fontsize [1.1] */
 				GMT_Report (API, GMT_MSG_COMPAT, "Option -L is deprecated; -D...+l%s was set instead, use this in the future.\n", opt->arg);
-				Ctrl->D.spacing = atof (opt->arg);
+				n_errors += gmt_get_required_double (GMT, opt->arg, opt->option, 0, &Ctrl->D.spacing);
 				break;
 
 			case 'M':	/* Merge both hidden and explicit legend info */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->M.active);
-				Ctrl->M.active = true;
+				Ctrl->M.n_items = 0;	/* Given -M we must reset and see what the user wants */
+				if (opt->arg[0] == '\0') {	/* Only gave -M, set default for -M */
+					Ctrl->M.order[0] = PSLEGEND_INFO_HIDDEN;
+					Ctrl->M.order[1] = PSLEGEND_INFO_GIVEN;
+					Ctrl->M.n_items = 2;
+				}
+				else if (opt->arg[0] == 'h')	/* Hidden first */
+					Ctrl->M.order[Ctrl->M.n_items++] = PSLEGEND_INFO_HIDDEN;
+				else if (opt->arg[0] == 'e')	/* Specfile first */
+					Ctrl->M.order[Ctrl->M.n_items++] = PSLEGEND_INFO_GIVEN;
+				if (opt->arg[1] == 'h')	/* Hidden second */
+					Ctrl->M.order[Ctrl->M.n_items++] = PSLEGEND_INFO_HIDDEN;
+				else if (opt->arg[1] == 'e')	/* Specfile second */
+					Ctrl->M.order[Ctrl->M.n_items++] = PSLEGEND_INFO_GIVEN;
+				if (strlen(opt->arg) > Ctrl->M.n_items) {
+					GMT_Report (API, GMT_MSG_COMPAT, "Option -M: Illegal argument %s, it must be either h, e, he, or eh\n", opt->arg);
+					n_errors++;
+				}
 				break;
 
 			case 'S':	/* Sets common symbol scale factor [1] */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->S.active);
-				Ctrl->S.active = true;
-				Ctrl->S.scale = atof (opt->arg);
+				n_errors += gmt_get_required_double (GMT, opt->arg, opt->option, 0, &Ctrl->S.scale);
 				break;
 
 			case 'T':	/* Sets legendfile for saving the hidden file */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->T.active);
-				Ctrl->T.active = true;
-				if (opt->arg[0])
-					Ctrl->T.file = strdup (opt->arg);
-				else {
-					GMT_Report (API, GMT_MSG_ERROR, "Option -T requires a filename\n");
-					n_errors++;
-				}
+				n_errors += gmt_get_required_file (GMT, opt->arg, opt->option, 0, GMT_IS_DATASET, GMT_OUT, GMT_FILE_LOCAL, &(Ctrl->T.file));
 				break;
 
 #ifdef DEBUG
 			case '+':	/* Dump temp files */
 				Ctrl->DBG.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 #endif
 
 			default:	/* Report bad options */
-				n_errors += gmt_default_error (GMT, opt->option);
+				n_errors += gmt_default_option_error (GMT, opt);
 				break;
 		}
 	}
@@ -319,7 +361,7 @@ static int parse (struct GMT_CTRL *GMT, struct PSLEGEND_CTRL *Ctrl, struct GMT_O
 
 	if (!Ctrl->D.refpoint) return (GMT_PARSE_ERROR);	/* Need to exit because next ones to not apply */
 
-	n_errors += gmt_M_check_condition (GMT, Ctrl->D.dim[GMT_Y] < 0.0, "Option -D: legend box height cannot be negative!\n");
+	n_errors += gmt_M_check_condition (GMT, Ctrl->D.R.dim[GMT_Y] < 0.0, "Option -D: legend box height cannot be negative!\n");
 	if (Ctrl->D.refpoint->mode != GMT_REFPOINT_PLOT) {	/* Anything other than -Dx need -R -J; other cases don't */
 		static char *kind = GMT_REFPOINT_CODES;	/* The five types of refpoint specifications */
 		n_errors += gmt_M_check_condition (GMT, !GMT->common.R.active[RSET], "Option -D%c requires the -R option\n", kind[Ctrl->D.refpoint->mode]);
@@ -340,7 +382,7 @@ GMT_LOCAL void pslegend_drawbase (struct GMT_CTRL *GMT, struct PSL_CTRL *PSL, do
 	PSL_plotsegment (PSL, x0, y0, x1, y0);
 }
 
-/* Used to fill the cells in the the current y-line. */
+/* Used to fill the cells in the current y-line. */
 GMT_LOCAL void pslegend_fillcell (struct GMT_CTRL *GMT, double x0, double y0, double y1, double xoff[], double *d_gap, unsigned int n_cols, char *fill[]) {
 	unsigned int col;
 	double dim[2];
@@ -370,7 +412,7 @@ GMT_LOCAL struct GMT_DATASET *pslegend_get_dataset_pointer (struct GMTAPI_CTRL *
 		return (NULL);
 	}
 	/* Initialize counters to zero */
-	D->n_records = D->table[0]->n_records = 0;
+	D->n_records = D->n_segments = D->table[0]->n_records = 0;
 	for (seg = 0; seg < n_segments; seg++)
 		D->table[0]->segment[seg]->n_rows = 0;
 	return (D);
@@ -385,7 +427,7 @@ GMT_LOCAL void pslegend_maybe_realloc_table (struct GMT_CTRL *GMT, struct GMT_DA
 	unsigned int mode = (T->segment[0]->text) ? GMT_WITH_STRINGS : 0;
 	if (k < TH->n_alloc) return;	/* Not yet */
 	T->segment = gmt_M_memory (GMT, T->segment, TH->n_alloc + GMT_SMALL_CHUNK, struct GMT_DATASEGMENT *);
-	for (unsigned int seg = TH->n_alloc; seg < TH->n_alloc + GMT_SMALL_CHUNK; seg++) {
+	for (unsigned int seg = (unsigned int)TH->n_alloc; seg < (unsigned int)TH->n_alloc + GMT_SMALL_CHUNK; seg++) {
 		T->segment[seg] = gmt_get_segment (GMT, T->n_columns);
 		gmt_alloc_segment (GMT, T->segment[seg], n_rows, T->n_columns, mode, true);
 	}
@@ -480,16 +522,19 @@ GMT_LOCAL bool pslegend_new_fontsyntax (struct GMT_CTRL *GMT, char *word1, char 
 #define PAR	5
 #define N_DAT	6
 
-#define INFO_HIDDEN	0
-#define INFO_GIVEN	1
 #define PSLEGEND_MAX_COLS	100
+
+GMT_LOCAL double get_the_size (struct GMT_CTRL *GMT, char *size, double def_value, double factor) {
+	return (strcmp (size, "-") ? gmt_M_to_inch (GMT, size) : def_value * factor);
+}
 
 EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 	/* High-level function that implements the pslegend task */
 	unsigned int set, tbl, pos, first = 0, ID, n_item = 0;
 	int i, justify = 0, n = 0, n_columns = 1, n_col, col, error = 0, column_number = 0, id, n_scan, status = 0, max_cols = 0;
 	bool flush_paragraph = false, v_line_draw_now = false, gave_label, gave_mapscale_options, did_old = false, use[2] = {false, true};
-	bool drawn = false, b_cpt = false, C_is_active = false, do_width = false, in_PS_ok = true, got_line = false;
+	bool drawn = false, b_cpt = false, C_is_active = false, do_width = false, in_PS_ok = true, got_line = false, got_geometric = false;
+	bool confidence_band = false;
 	uint64_t seg, row, n_fronts = 0, n_quoted_lines = 0, n_decorated_lines = 0, n_symbols = 0, n_par_lines = 0, n_par_total = 0, krow[N_DAT], n_records = 0;
 	int64_t n_para = -1;
 	size_t n_char = 0;
@@ -499,17 +544,17 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 	char yy[GMT_LEN256] = {""}, size[GMT_LEN256] = {""}, angle[GMT_LEN256] = {""}, mapscale[GMT_LEN256] = {""};
 	char font[GMT_LEN256] = {""}, lspace[GMT_LEN256] = {""}, tw[GMT_LEN256] = {""}, jj[GMT_LEN256] = {""};
 	char bar_cpt[GMT_LEN256] = {""}, bar_gap[GMT_LEN256] = {""}, bar_height[GMT_LEN256] = {""}, bar_modifiers[GMT_LEN256] = {""};
-	char module_options[GMT_LEN256] = {""}, r_options[GMT_LEN256] = {""}, xy_mode[3] = {""};
+	char module_options[GMT_LEN256] = {""}, r_options[GMT_LEN256] = {""}, xy_mode[3] = {""}, J_arg[GMT_LEN64] = {"-Jx1i"};
 	char txtcolor[GMT_LEN256] = {""}, def_txtcolor[GMT_LEN256] = {""}, buffer[GMT_BUFSIZ] = {""}, A[GMT_LEN32] = {""}, legend_file[PATH_MAX] = {""};
 	char path[PATH_MAX] = {""}, B[GMT_LEN32] = {""}, C[GMT_LEN32] = {""}, p[GMT_LEN256] = {""};
-	char *plot_points[2] = {"psxy", "plot"}, *plot_text[2] = {"pstext", "text"};
+	char *plot_points[2] = {"psxy", "plot"}, *plot_text[2] = {"pstext", "text"}, orig_symbol = 0;
 	char *line = NULL, string[GMT_VF_LEN] = {""}, *c = NULL, *fill[PSLEGEND_MAX_COLS];
 #ifdef DEBUG
 	char *dname[N_DAT] = {"symbol", "front", "qline", "textline", "partext"};
 #endif
 
-	double x_orig, y_orig, x_off, x, y, r, col_left_x, row_base_y, dx, d_line_half_width, d_line_hor_offset, off_ss, off_tt, def_dx2 = 0.0;
-	double v_line_ver_offset = 0.0, height, az1, az2, m_az, row_height, scl, aspect, xy_offset[2], line_size = 0.0, C_rgb[4] = {0.0, 0.0, 0.0, 0.0};
+	double x_orig, y_orig, x_off, x, y, r, col_left_x, row_base_y, d_line_half_width, d_line_hor_offset, off_ss, off_tt, def_dx2 = 0.0, W, H;
+	double v_line_ver_offset = 0.0, height, az1, az2, row_height, scl, aspect, xy_offset[2], line_size = 0.0, C_rgb[4] = {0.0, 0.0, 0.0, 0.0};
 	double half_line_spacing, quarter_line_spacing, one_line_spacing, v_line_y_start = 0.0, d_off, def_size = 0.0, shrink[4] = {0.0, 0.0, 0.0, 0.0};
 	double sum_width, h, gap, d_line_after_gap = 0.0, d_line_last_y0 = 0.0, col_width[PSLEGEND_MAX_COLS], x_off_col[PSLEGEND_MAX_COLS];
 
@@ -541,7 +586,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 
 	/* Parse the command-line arguments; return if errors are encountered */
 
-	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, NULL, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
+	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, module_kw, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
 	if (GMT_Parse_Common (API, THIS_MODULE_OPTIONS, options)) Return (API->error);
 	Ctrl = New_Ctrl (GMT);	/* Allocate and initialize a new control structure */
 	if ((error = parse (GMT, Ctrl, options)) != 0) Return (error);
@@ -559,39 +604,60 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 		GMT->current.setting.io_seg_marker[GMT_IN] = '#';
 	}
 
+	/* Here, use[PSLEGEND_INFO_HIDDEN] = false and use[PSLEGEND_INFO_GIVEN] is set to true.  This is classic mode defaults.
+	 * However, we may be in modern mode which allows both inputs, yet this may be further modified via -M. */
+
 	if (GMT->current.setting.run_mode == GMT_MODERN)	/* Possibly use both hidden info and explicit info files */
-		use[INFO_HIDDEN] =  true;
+		use[PSLEGEND_INFO_HIDDEN] =  true;	/* Now both are true */
 
-	if (use[INFO_HIDDEN] && gmt_legend_file (API, legend_file) == 1) {	/* Running modern mode and we have a hidden legend file to read */
+	if (use[PSLEGEND_INFO_HIDDEN] && gmt_legend_file (API, legend_file) == 1) {	/* Running modern mode AND we have a hidden legend file to read */
 		GMT_Report (API, GMT_MSG_INFORMATION, "Processing hidden legend specification file %s\n", legend_file);
-		if ((INFO[INFO_HIDDEN] = GMT_Read_Data (API, GMT_IS_DATASET, GMT_IS_FILE, GMT_IS_TEXT, GMT_READ_NORMAL, NULL, legend_file, NULL)) == NULL) {
+		if ((INFO[PSLEGEND_INFO_HIDDEN] = GMT_Read_Data (API, GMT_IS_DATASET, GMT_IS_FILE, GMT_IS_TEXT, GMT_READ_NORMAL, NULL, legend_file, NULL)) == NULL) {
 			Return (API->error);
 		}
-		if (Ctrl->T.active && GMT_Write_Data (API, GMT_IS_DATASET, GMT_IS_FILE, GMT_IS_TEXT, GMT_WRITE_NORMAL, NULL, Ctrl->T.file, INFO[INFO_HIDDEN]) != GMT_NOERROR) {
+		/* Possibly save the hidden spec file to a user-accessible file via -T */
+		if (Ctrl->T.active && GMT_Write_Data (API, GMT_IS_DATASET, GMT_IS_FILE, GMT_IS_TEXT, GMT_WRITE_NORMAL, NULL, Ctrl->T.file, INFO[PSLEGEND_INFO_HIDDEN]) != GMT_NOERROR) {
 			Return (API->error);
 		}
-		if (!Ctrl->M.active) use[INFO_GIVEN] = false;	/* Without -M we only read one source */
-		n_records += INFO[INFO_HIDDEN]->n_records;
+		use[PSLEGEND_INFO_GIVEN] = false;	/* Since we have a hidden file we turn off specfile unless -M is set */
+		if (Ctrl->M.active) {	/* And even then we must check if e and/or h was set */
+			use[PSLEGEND_INFO_HIDDEN] = false;	/* So even though we have hidden info we must see if -M sets h to actually use it */
+			for (set = 0; set < Ctrl->M.n_items; set++) {	/* Loop over what we set via -M */
+				if (Ctrl->M.order[set] == PSLEGEND_INFO_GIVEN)
+					use[PSLEGEND_INFO_GIVEN] = true;	/* OK, do want the specfile info */
+				else if (Ctrl->M.order[set] == PSLEGEND_INFO_HIDDEN)
+					use[PSLEGEND_INFO_HIDDEN] = true;	/* OK, do want the hidden info */
+			}
+		}
+		else {	/* Default under modern mode (no -M) is to use both, with hidden first then spec */
+			if (Ctrl->got_file) {	/* Gave a specfile means we explicitly want this only */
+				use[PSLEGEND_INFO_HIDDEN] = false;	/* So even though we have hidden info we override with explicit file */
+				use[PSLEGEND_INFO_GIVEN] = true;	/* Have specfile */
+				Ctrl->M.order[0] = PSLEGEND_INFO_GIVEN;
+				Ctrl->M.n_items = 1;
+			}
+			else {	/* No choice but to try both since there may be a stdin thing */
+				Ctrl->M.order[0] = PSLEGEND_INFO_HIDDEN;
+				Ctrl->M.order[1] = PSLEGEND_INFO_GIVEN;
+				Ctrl->M.n_items = 2;
+			}
+		}
+		if (use[PSLEGEND_INFO_HIDDEN]) n_records += INFO[PSLEGEND_INFO_HIDDEN]->n_records;
 	}
-	else
-		use[INFO_HIDDEN] =  false;
+	else	/* There were no hidden legend items so we must read a spec file, modern or classic does not matter */
+		use[PSLEGEND_INFO_HIDDEN] =  false;
 
-	if (use[INFO_GIVEN]) {	/* Possibly register stdin and/or read specified input file(s) */
+	if (use[PSLEGEND_INFO_GIVEN]) {	/* Possibly register stdin and/or read specified input file(s) */
 		if (GMT_Init_IO (API, GMT_IS_DATASET, GMT_IS_TEXT, GMT_IN, GMT_ADD_DEFAULT, 0, options) != GMT_NOERROR) {	/* Register data input */
 			Return (API->error);
 		}
-		if ((INFO[INFO_GIVEN] = GMT_Read_Data (API, GMT_IS_DATASET, GMT_IS_FILE, 0, GMT_READ_NORMAL, NULL, NULL, NULL)) == NULL) {
+		if ((INFO[PSLEGEND_INFO_GIVEN] = GMT_Read_Data (API, GMT_IS_DATASET, GMT_IS_FILE, 0, GMT_READ_NORMAL, NULL, NULL, NULL)) == NULL) {
 			Return (API->error);
 		}
-		n_records += INFO[INFO_GIVEN]->n_records;
+		n_records += INFO[PSLEGEND_INFO_GIVEN]->n_records;
 	}
 
 	ID = GMT->current.setting.run_mode;	/* Use as index to arrays with correct module names for classic [0] or modern [1] */
-
-	if (Ctrl->D.dim[GMT_X] == 0.0) {	/* Compute legend width */
-		legend_item = gmt_M_memory (GMT, NULL, n_records, struct PSLEGEND_TXT);	/* Array to hold all labels */
-		do_width = true;
-	}
 
 	/* When no projection specified (i.e, -Dx is used), we cannot autoscale so must set undefined dimensions and font sizes to nominal sizes */
 	if (!(GMT->common.R.active[RSET] && GMT->common.J.active)) {
@@ -601,6 +667,15 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 	else if (gmt_map_setup (GMT, GMT->common.R.wesn))	/* gmt_map_setup will call gmt_set_undefined_defaults as well */
 		Return (GMT_PROJECTION_ERROR);
 
+	if (Ctrl->D.R.dim[GMT_X] == 0.0) {	/* Compute legend width */
+		if (Ctrl->D.R.fraction[GMT_X]) /* Use a fraction of map width */
+			Ctrl->D.R.dim[GMT_X] = Ctrl->D.R.scl[GMT_X] * fabs (GMT->current.map.width);
+		else {	/* Determine it from the contents */
+			legend_item = gmt_M_memory (GMT, NULL, n_records, struct PSLEGEND_TXT);	/* Array to hold all labels */
+			do_width = true;
+		}
+	}
+
 	/* First attempt to compute the legend height */
 
 	one_line_spacing = Ctrl->D.spacing * GMT->current.setting.font_annot[GMT_PRIMARY].size / PSL_POINTS_PER_INCH;
@@ -608,9 +683,9 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 	quarter_line_spacing = 0.25 * one_line_spacing;
 
 	height = 2.0 * Ctrl->C.off[GMT_Y];
-	for (set = INFO_HIDDEN; set <= INFO_GIVEN; set++) {
-		if (!use[set]) continue;
-		In = INFO[set];	/* Short-hand */
+	for (set = 0; set < Ctrl->M.n_items; set++) {	/* We may have one or two sources to consider in desired order */
+		if (!use[Ctrl->M.order[set]]) continue;	/* This one was not selected */
+		In = INFO[Ctrl->M.order[set]];	/* Short-hand to this source */
 		for (tbl = 0; tbl < In->n_tables; tbl++) {	/* We only expect one table but who knows what the user does */
 			for (seg = 0; seg < In->table[tbl]->n_segments; seg++) {	/* We only expect one segment in each table but again... */
 				for (row = 0; row < In->table[tbl]->segment[seg]->n_rows; row++) {	/* Finally processing the rows */
@@ -775,16 +850,29 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 							break;
 
 						case 'S':	/* Symbol record: S [dx1 symbol size fill pen [ dx2 text ]] */
-							if (column_number%n_columns == 0) {
+							text[0] = '\0';
+							n_scan = sscanf (line, "%*s %*s %s %s %*s %*s %s %[^\n]", symbol, size, txt_b, text);
+							if (column_number%n_columns == 0 && symbol[0] != 'L') {	/* Skip L to not count both symbols making up the confidence line */
 								height += one_line_spacing;
 								column_number = 0;
 							}
 							column_number++;
-							text[0] = '\0';
-							n_scan = sscanf (line, "%*s %*s %s %s %*s %*s %s %[^\n]", symbol, size, txt_b, text);
 							/* Find the largest symbol size specified */
-							if ((c = strrchr (size, '/')))	/* Front, use the last arg as size since closest to height */
-								x = gmt_M_to_inch (GMT, &c[1]);
+							gmt_strrepc (size, '/', ' ');	/* Replace any slashes with spaces */
+							gmt_strrepc (size, ',', ' ');	/* Replace any commas with spaces */
+							n = sscanf (size, "%s %s %s", A, B, C);
+							if (n > 1) {	/* Multi-arg symbol, use the last arg as size since closest to height */
+								if (strchr ("eEjJvV", symbol[0]))	/* These all has 2nd arg as size */
+									x = gmt_M_to_inch (GMT, B);
+								else if (strchr ("rRm", symbol[0]))	/* These all has 1st arg as size */
+									x = gmt_M_to_inch (GMT, A);
+								else {	/* Last arg */
+									if (n == 3)
+										x = gmt_M_to_inch (GMT, C);
+									else
+										x = gmt_M_to_inch (GMT, B);
+								}
+							}
 							else {
 								if (strcmp (size, "-")) {
 									char *c = NULL;
@@ -799,10 +887,12 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								else
 									x = 0.0;
 							}
-							if (symbol[0] == '-') {	/* Line symbol */
+							if (strchr ("fqvV-~", symbol[0])) {	/* A line-type symbol or vector */
 								got_line = true;
 								if (x > 0.0) line_size = x;
 							}
+							else	/* Got regular symbols too */
+								got_geometric = true;
 							if (x > def_size) def_size = x;
 							if (n_scan > 2 && strcmp (txt_b, "-")) {
 								x = gmt_M_to_inch (GMT, txt_b);
@@ -847,12 +937,17 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 			Return (GMT_RUNTIME_ERROR);
 		}
 	}
-	if (got_line && gmt_M_is_zero (line_size) && def_size > 0.0)	/* Got lines but no lengths specified an another symbol set the default */
-		def_size = 0.5 / 2.54;	/* In inches */
-	else if (def_size == 0.0)	/* No sizes specified in input file; default to 0.5 cm */
-		def_size = 0.5 / 2.54;	/* In inches */
-	if (def_dx2 == 0.0)	/* No dist to text label given; default to 2x default symbol size */
-		def_dx2 = Ctrl->S.scale * GMT_LEGEND_DX2_MUL * def_size;	/* In inches */
+	W = GMT_LET_WIDTH * GMT->current.setting.font_annot[GMT_PRIMARY].size / PSL_POINTS_PER_INCH;	/* Average current annotation font width in inches */
+	H = FONT_HEIGHT_PRIMARY * GMT->current.setting.font_annot[GMT_PRIMARY].size / PSL_POINTS_PER_INCH;	/* Average current annotation font width in inches */
+	if (got_line && gmt_M_is_zero (line_size)) {	/* Got lines but no lengths specified */
+		line_size = 2.5 * W;	/* 2.5 mean character widths in inches */
+		if (def_size == 0.0)	/* No other symbol size were specified, so set those too */
+			def_size = (got_geometric) ? H : line_size;
+	}
+	else if (def_size == 0.0)	/* No sizes specified in input file; default to H */
+		def_size = H;	/* In inches */
+	if (def_dx2 == 0.0)	/* No dist to text label given; set to default symbol size + annotation size */
+		def_dx2 = MAX (def_size, line_size) + W;	/* In inches */
 	GMT_Report (API, GMT_MSG_DEBUG, "Default symbol size = %g and default distance to text label is %g\n", def_size, def_dx2);
 
 	if (n_char) {	/* Typesetting paragraphs, make a guesstimate of number of typeset lines */
@@ -860,23 +955,23 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 		double average_char_width = 0.44;	/* There is no such thing but this is just a 1st order estimate */
 		double x_lines;
 		/* Guess: Given legend width and approximate char width, do the simple expression */
-		x_lines = n_char * (average_char_width * GMT->current.setting.font_annot[GMT_PRIMARY].size / PSL_POINTS_PER_INCH) / ((Ctrl->D.dim[GMT_X] - 2 * Ctrl->C.off[GMT_X]));
+		x_lines = n_char * (average_char_width * GMT->current.setting.font_annot[GMT_PRIMARY].size / PSL_POINTS_PER_INCH) / ((Ctrl->D.R.dim[GMT_X] - 2 * Ctrl->C.off[GMT_X]));
 		n_lines = irint (ceil (x_lines));
 		height += n_lines * Ctrl->D.spacing * GMT->current.setting.font_annot[GMT_PRIMARY].size / PSL_POINTS_PER_INCH;
 		GMT_Report (API, GMT_MSG_DEBUG, "Estimating %d lines of typeset paragraph text [%.1f].\n", n_lines, x_lines);
 	}
 
 	scl = gmt_convert_units (GMT, "1", GMT_INCH, GMT->current.setting.proj_length_unit);
-	if (Ctrl->D.dim[GMT_Y] == 0.0) {	/* Use the computed height */
-		Ctrl->D.dim[GMT_Y] = height;
+	if (Ctrl->D.R.dim[GMT_Y] == 0.0) {	/* Use the computed height */
+		Ctrl->D.R.dim[GMT_Y] = height;
 		GMT_Report (API, GMT_MSG_INFORMATION, "Legend height not given, using estimated height of %g %s.\n", scl*height,
 			GMT->session.unit_name[GMT->current.setting.proj_length_unit]);
 	}
 	else
 		GMT_Report (API, GMT_MSG_INFORMATION, "Legend height given as %g %s; estimated height is %g %s.\n",
-		            scl*Ctrl->D.dim[GMT_Y], GMT->session.unit_name[GMT->current.setting.proj_length_unit],
+		            scl*Ctrl->D.R.dim[GMT_Y], GMT->session.unit_name[GMT->current.setting.proj_length_unit],
 		            scl*height, GMT->session.unit_name[GMT->current.setting.proj_length_unit]);
-	if (do_width) Ctrl->D.dim[GMT_X] = Ctrl->D.dim[GMT_Y];	/* Temporarily needed in gmt_map_setup */
+	if (do_width) Ctrl->D.R.dim[GMT_X] = Ctrl->D.R.dim[GMT_Y];	/* Temporarily needed in gmt_map_setup */
 
 	if (!(GMT->common.R.active[RSET] && GMT->common.J.active)) {	/* When no projection specified (i.e, -Dx is used), use fake linear projection -Jx1i */
 		double wesn[4];
@@ -884,7 +979,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 		GMT->common.R.active[RSET] = true;
 		GMT->common.J.active = false;
 		gmt_parse_common_options (GMT, "J", 'J', "x1i");
-		wesn[XHI] = Ctrl->D.dim[GMT_X];	wesn[YHI] = Ctrl->D.dim[GMT_Y];
+		wesn[XHI] = Ctrl->D.R.dim[GMT_X];	wesn[YHI] = Ctrl->D.R.dim[GMT_Y];
 		if (gmt_map_setup (GMT, wesn)) Return (GMT_PROJECTION_ERROR);
 		if (GMT->common.B.active[GMT_PRIMARY] || GMT->common.B.active[GMT_SECONDARY]) {	/* Cannot use -B if no -R -J */
 			GMT->common.B.active[GMT_PRIMARY] = GMT->common.B.active[GMT_SECONDARY] = false;
@@ -936,16 +1031,16 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 		PSL_command (PSL, "/PSL_legend_box_width PSL_tmp_w PSL_legend_string_width gt { PSL_tmp_w } { PSL_legend_string_width} ifelse PSL_legend_clear_x add def\n");
 	}
 	else {	/* Hardwired width */
-		PSL_defunits (PSL, "PSL_legend_box_width", Ctrl->D.dim[GMT_X]);
+		PSL_defunits (PSL, "PSL_legend_box_width", Ctrl->D.R.dim[GMT_X]);
 	}
 	if (legend_item) gmt_M_free (GMT, legend_item);
-	PSL_defunits (PSL, "PSL_legend_box_height", Ctrl->D.dim[GMT_Y]);
+	PSL_defunits (PSL, "PSL_legend_box_height", Ctrl->D.R.dim[GMT_Y]);
 
 	gmt_set_refpoint (GMT, Ctrl->D.refpoint);	/* Finalize reference point plot coordinates, if needed */
 
 	/* Allow for justification and offset so that the reference point is the plot location of the bottom left corner of box */
 
-	gmt_adjust_refpoint (GMT, Ctrl->D.refpoint, Ctrl->D.dim, Ctrl->D.off, Ctrl->D.justify, PSL_BL);
+	gmt_adjust_refpoint (GMT, Ctrl->D.refpoint, Ctrl->D.R.dim, Ctrl->D.off, Ctrl->D.justify, PSL_BL);
 
 	if (GMT->current.setting.run_mode == GMT_MODERN) {
 		struct GMT_SUBPLOT *SP = &(GMT->current.plot.panel);
@@ -988,22 +1083,22 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 			PSL_command (PSL, "U\n");
 		}
 		else {	/* Via C function */
-			Ctrl->F.panel->width = Ctrl->D.dim[GMT_X];	Ctrl->F.panel->height = Ctrl->D.dim[GMT_Y];
-			gmt_draw_map_panel (GMT, Ctrl->D.refpoint->x + 0.5 * Ctrl->D.dim[GMT_X], Ctrl->D.refpoint->y + 0.5 * Ctrl->D.dim[GMT_Y], 1U, Ctrl->F.panel);
+			Ctrl->F.panel->width = Ctrl->D.R.dim[GMT_X];	Ctrl->F.panel->height = Ctrl->D.R.dim[GMT_Y];
+			gmt_draw_map_panel (GMT, Ctrl->D.refpoint->x + 0.5 * Ctrl->D.R.dim[GMT_X], Ctrl->D.refpoint->y + 0.5 * Ctrl->D.R.dim[GMT_Y], 1U, Ctrl->F.panel);
 		}
 	}
 
 	col_left_x = Ctrl->D.refpoint->x + Ctrl->C.off[GMT_X];			/* Left justification edge of items inside legend box accounting for clearance */
-	row_base_y = Ctrl->D.refpoint->y + Ctrl->D.dim[GMT_Y] - Ctrl->C.off[GMT_Y];	/* Top justification edge of items inside legend box accounting for clearance  */
+	row_base_y = Ctrl->D.refpoint->y + Ctrl->D.R.dim[GMT_Y] - Ctrl->C.off[GMT_Y];	/* Top justification edge of items inside legend box accounting for clearance  */
 	column_number = 0;	/* Start at first column in multi-column setup */
 	n_columns = 1;		/* Reset to default number of columns */
 	/* Reset to annotation font text color */
 	sprintf (def_txtcolor, "%s", gmt_putcolor (GMT, GMT->current.setting.font_annot[GMT_PRIMARY].fill.rgb));
 	sprintf (txtcolor, "%s", gmt_putcolor (GMT, GMT->current.setting.font_annot[GMT_PRIMARY].fill.rgb));
 	x_off_col[0] = 0.0;	/* The x-coordinate of left side of first column */
-	x_off_col[n_columns] = Ctrl->D.dim[GMT_X];	/* Holds width of a row */
+	x_off_col[n_columns] = Ctrl->D.R.dim[GMT_X];	/* Holds width of a row */
 
-	if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.dim[GMT_X], row_base_y);
+	if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.R.dim[GMT_X], row_base_y);
 
 	flush_paragraph = false;
 	gap = Ctrl->C.off[GMT_Y];	/* This gets reset to 0 once we finish the first printable row */
@@ -1011,9 +1106,9 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 	/* Tech, note: Using GMT->current.setting.io_seg_marker[GMT_IN] instead of GMT_OUT when writing data records as segment records
 	 * since these will become input to plot, and plot will use the GMT_IN marker to identify these as header records. */
 
-	for (set = INFO_HIDDEN; set <= INFO_GIVEN; set++) {
-		if (!use[set]) continue;
-		In = INFO[set];	/* Short-hand */
+	for (set = 0; set < Ctrl->M.n_items; set++) {	/* We may have one or two sources to consider in desired order */
+		if (!use[Ctrl->M.order[set]]) continue;	/* This one was not selected */
+		In = INFO[Ctrl->M.order[set]];	/* Short-hand to this source */
 		for (tbl = 0; tbl < In->n_tables; tbl++) {	/* We only expect one table but who knows what the user does */
 			for (seg = 0; seg < In->table[tbl]->n_segments; seg++) {	/* We only expect one segment in each table but again... */
 				for (row = 0; row < In->table[tbl]->segment[seg]->n_rows; row++) {	/* Finally processing the rows */
@@ -1046,7 +1141,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 							row_height = gmt_M_to_inch (GMT, bar_height) + GMT->current.setting.map_tick_length[GMT_PRIMARY] + GMT->current.setting.map_annot_offset[GMT_PRIMARY] + FONT_HEIGHT_PRIMARY * GMT->current.setting.font_annot[GMT_PRIMARY].size / PSL_POINTS_PER_INCH;
 							pslegend_fillcell (GMT, Ctrl->D.refpoint->x, row_base_y-row_height, row_base_y+gap, x_off_col, &d_line_after_gap, 1, fill);
 							x_off = gmt_M_to_inch (GMT, bar_gap);
-							sprintf (buffer, "-C%s -O -K -Dx%gi/%gi+w%gi/%s+h+jTC %s --GMT_HISTORY=readonly", bar_cpt, Ctrl->D.refpoint->x + 0.5 * Ctrl->D.dim[GMT_X], row_base_y, Ctrl->D.dim[GMT_X] - 2 * x_off, bar_modifiers, module_options);
+							sprintf (buffer, "-C%s -O -K -Dx%gi/%gi+w%gi/%s+h+jTC %s --GMT_HISTORY=readonly", bar_cpt, Ctrl->D.refpoint->x + 0.5 * Ctrl->D.R.dim[GMT_X], row_base_y, Ctrl->D.R.dim[GMT_X] - 2 * x_off, bar_modifiers, module_options);
 							GMT_Report (API, GMT_MSG_DEBUG, "RUNNING: gmt psscale %s\n", buffer);
 							status = GMT_Call_Module (API, "psscale", GMT_MODULE_CMD, buffer);	/* Plot the colorbar */
 							if (status) {
@@ -1114,13 +1209,13 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 									PSL_command (PSL, "PSL_legend_box_width PSL_legend_hor_off sub 0 D S\n");
 								}
 							else
-								PSL_plotsegment (PSL, Ctrl->D.refpoint->x + d_line_hor_offset, row_base_y, Ctrl->D.refpoint->x + Ctrl->D.dim[GMT_X] - d_line_hor_offset, row_base_y);
+								PSL_plotsegment (PSL, Ctrl->D.refpoint->x + d_line_hor_offset, row_base_y, Ctrl->D.refpoint->x + Ctrl->D.R.dim[GMT_X] - d_line_hor_offset, row_base_y);
 							}
 							d_line_after_gap = (txt_c[0] == '+' || txt_c[0] == '=') ? 0.0 : quarter_line_spacing;
 							row_base_y -= d_line_after_gap;
 							d_line_after_gap -= d_line_half_width;	/* Shrink the gap fill-height after a D line by half the line width so we don't overwrite the line */
 							column_number = 0;	/* Reset to new row */
-							if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.dim[GMT_X], row_base_y);
+							if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.R.dim[GMT_X], row_base_y);
 							drawn = true;
 							break;
 
@@ -1147,7 +1242,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 							pslegend_fillcell (GMT, Ctrl->D.refpoint->x, row_base_y-row_height, row_base_y+gap, x_off_col, &d_line_after_gap, n_columns, fill);
 							row_base_y -= row_height;
 							column_number = 0;
-							if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.dim[GMT_X], row_base_y);
+							if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.R.dim[GMT_X], row_base_y);
 							drawn = true;
 							break;
 
@@ -1184,7 +1279,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								/* Build output segment */
 								if ((D[TXT] = pslegend_get_dataset_pointer (API, D[TXT], GMT_IS_NONE, 1U, GMT_SMALL_CHUNK, 2U, true)) == NULL) return (API->error);
 								S[TXT] = pslegend_get_segment (D, TXT, 0);	/* Since there will only be one table with one segment for each set, except for fronts */
-								S[TXT]->data[GMT_X][krow[TXT]] = Ctrl->D.refpoint->x + 0.5 * Ctrl->D.dim[GMT_X];
+								S[TXT]->data[GMT_X][krow[TXT]] = Ctrl->D.refpoint->x + 0.5 * Ctrl->D.R.dim[GMT_X];
 								S[TXT]->data[GMT_Y][krow[TXT]] = row_base_y + d_off;
 								S[TXT]->text[krow[TXT]++] = strdup (buffer);
 								S[TXT]->n_rows++;
@@ -1193,7 +1288,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								pslegend_maybe_realloc_segment (GMT, S[TXT]);
 							}
 							column_number = 0;
-							if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.dim[GMT_X], row_base_y);
+							if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.R.dim[GMT_X], row_base_y);
 							drawn = true;
 							break;
 
@@ -1212,7 +1307,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 							row_height = gmt_M_to_inch (GMT, size) * aspect;
 							pslegend_fillcell (GMT, Ctrl->D.refpoint->x, row_base_y-row_height, row_base_y+gap, x_off_col, &d_line_after_gap, n_columns, fill);
 							x_off = Ctrl->D.refpoint->x;
-							x_off += (justify%4 == 1) ? Ctrl->C.off[GMT_X] : ((justify%4 == 3) ? Ctrl->D.dim[GMT_X] - Ctrl->C.off[GMT_X] : 0.5 * Ctrl->D.dim[GMT_X]);
+							x_off += (justify%4 == 1) ? Ctrl->C.off[GMT_X] : ((justify%4 == 3) ? Ctrl->D.R.dim[GMT_X] - Ctrl->C.off[GMT_X] : 0.5 * Ctrl->D.R.dim[GMT_X]);
 							sprintf (buffer, "-O -K %s -Dx%gi/%gi+j%s+w%s --GMT_HISTORY=readonly", &image[first], x_off, row_base_y, key, size);
 							GMT_Report (API, GMT_MSG_DEBUG, "RUNNING: gmt psimage %s\n", buffer);
 							status = GMT_Call_Module (API, "psimage", GMT_MODULE_CMD, buffer);	/* Plot the image */
@@ -1249,7 +1344,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								pslegend_fillcell (GMT, Ctrl->D.refpoint->x, row_base_y-row_height, row_base_y+gap, x_off_col, &d_line_after_gap, n_columns, fill);
 								row_base_y -= row_height;
 								column_number = 0;
-								if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.dim[GMT_X], row_base_y);
+								if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.R.dim[GMT_X], row_base_y);
 							}
 							if (text[0] == '\0') {	/* Nothing to do, just skip to next */
 								column_number++;
@@ -1330,9 +1425,9 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 							pslegend_fillcell (GMT, Ctrl->D.refpoint->x, row_base_y-h, row_base_y+gap, x_off_col, &d_line_after_gap, n_columns, fill);
 							if (gave_label && just == 't') row_base_y -= d_off;
 							if (!strcmp (txt_a, "-"))	/* No longitude needed */
-								sprintf (mapscale, "x%gi/%gi+c%s+jTC+w%s", Ctrl->D.refpoint->x + 0.5 * Ctrl->D.dim[GMT_X], row_base_y, txt_b, txt_c);
+								sprintf (mapscale, "x%gi/%gi+c%s+jTC+w%s", Ctrl->D.refpoint->x + 0.5 * Ctrl->D.R.dim[GMT_X], row_base_y, txt_b, txt_c);
 							else				/* Gave both lon and lat for scale */
-								sprintf (mapscale, "x%gi/%gi+c%s/%s+jTC+w%s", Ctrl->D.refpoint->x + 0.5 * Ctrl->D.dim[GMT_X], row_base_y, txt_a, txt_b, txt_c);
+								sprintf (mapscale, "x%gi/%gi+c%s/%s+jTC+w%s", Ctrl->D.refpoint->x + 0.5 * Ctrl->D.R.dim[GMT_X], row_base_y, txt_a, txt_b, txt_c);
 							if (r_options[0])	/* Gave specific -R -J on M line */
 								sprintf (buffer, "%s -O -K -L%s", r_options, mapscale);
 							else {	/* Must use -R -J as supplied to pslegend */
@@ -1354,7 +1449,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 							if (gave_label && just == 'b') row_base_y -= d_off;
 							row_base_y -= row_height;
 							column_number = 0;
-							if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.dim[GMT_X], row_base_y);
+							if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.R.dim[GMT_X], row_base_y);
 							drawn = true;
 							break;
 
@@ -1375,8 +1470,8 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								for (column_number = 0; column_number < n_columns; column_number++) col_width[column_number] = 1.0;
 							}
 							for (column_number = 0, sum_width = 0.0; column_number < n_columns; column_number++) sum_width += col_width[column_number];
-							for (column_number = 1, x_off_col[0] = 0.0; column_number < n_columns; column_number++) x_off_col[column_number] = x_off_col[column_number-1] + (Ctrl->D.dim[GMT_X] * col_width[column_number-1] / sum_width);
-							x_off_col[column_number] = Ctrl->D.dim[GMT_X];	/* Holds width of row */
+							for (column_number = 1, x_off_col[0] = 0.0; column_number < n_columns; column_number++) x_off_col[column_number] = x_off_col[column_number-1] + (Ctrl->D.R.dim[GMT_X] * col_width[column_number-1] / sum_width);
+							x_off_col[column_number] = Ctrl->D.R.dim[GMT_X];	/* Holds width of row */
 							if (n_columns > n_col) for (col = 1; col < n_columns; col++) if (fill[0]) fill[col] = strdup (fill[0]);	/* Extend the fill array to match the new column numbers, if fill is active */
 							column_number = 0;
 							if (gmt_M_is_verbose (GMT, GMT_MSG_DEBUG)) {
@@ -1417,14 +1512,14 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								}
 							}
 							did_old = false;
-							if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.dim[GMT_X], row_base_y);
+							if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.R.dim[GMT_X], row_base_y);
 							if (n == 0 || xx[0] == '-') sprintf (xx, "%g", col_left_x);
 							if (n == 0 || yy[0] == '-') sprintf (yy, "%g", row_base_y);
 							if (n == 0 || tmp[0] == '-') sprintf (tmp, "%gp,%d,%s", GMT->current.setting.font_annot[GMT_PRIMARY].size, GMT->current.setting.font_annot[GMT_PRIMARY].id, txtcolor);
 							if (n == 0 || angle[0] == '-') sprintf (angle, "0");
 							if (n == 0 || key[0] == '-') sprintf (key, "TL");
 							if (n == 0 || lspace[0] == '-') sprintf (lspace, "%gi", one_line_spacing);
-							if (n == 0 || tw[0] == '-') sprintf (tw, "%gi", Ctrl->D.dim[GMT_X] - 2.0 * Ctrl->C.off[GMT_X]);
+							if (n == 0 || tw[0] == '-') sprintf (tw, "%gi", Ctrl->D.R.dim[GMT_X] - 2.0 * Ctrl->C.off[GMT_X]);
 							if (n == 0 || jj[0] == '-') sprintf (jj, "j");
 							if (n_para >= 0) {	/* End of previous paragraph for sure */
 								S[PAR]->n_rows = krow[PAR];
@@ -1447,11 +1542,13 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								n_scan = sscanf (&line[2], "%s %s %s %s %s %s %[^\n]", txt_a, symbol, size, txt_c, txt_d, txt_b, text);
 							else	/* No args given means skip to next cell */
 								n_scan = 0;
+							orig_symbol = symbol[0];	/* Needed for L since we change it to r herein */
 							if (column_number%n_columns == 0) {	/* Symbol in first column, also fill row if requested */
 								pslegend_fillcell (GMT, Ctrl->D.refpoint->x, row_base_y-one_line_spacing, row_base_y+gap, x_off_col, &d_line_after_gap, n_columns, fill);
-								row_base_y -= one_line_spacing;
+								if (!confidence_band) row_base_y -= one_line_spacing;
 								column_number = 0;
 							}
+							if (symbol[0] == 'L') symbol[0] = 'r';	/* L means rectangle followed by central line */
 							if (n_scan <= 0) {	/* No symbol, just skip to next cell */
 								column_number++;
 								GMT_Report (API, GMT_MSG_DEBUG, "The S record give no info so skip to next cell\n");
@@ -1465,7 +1562,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								x_off = Ctrl->D.refpoint->x + x_off_col[column_number];
 							}
 							else if (!strcmp (txt_a, "-")) {	/* Automatic margin offset */
-								off_ss = GMT_LEGEND_DX1_MUL * Ctrl->S.scale * def_size;
+								off_ss = Ctrl->S.scale * 0.5 * (got_line ? line_size : def_size);
 								x_off = col_left_x + x_off_col[column_number];
 							}
 							else {	/* Gave a specific offset */
@@ -1473,12 +1570,12 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								x_off = col_left_x + x_off_col[column_number];
 							}
 							if (!strcmp (txt_b, "-"))	/* Automatic label offset */
-								off_tt = GMT_LEGEND_DX2_MUL * Ctrl->S.scale * def_size;
+								off_tt = (def_dx2 > 0.0) ? Ctrl->S.scale * def_dx2 : Ctrl->S.scale * (def_size + W);
 							else	/* Gave a specific offset */
 								off_tt = gmt_M_to_inch (GMT, txt_b);
 							d_off = 0.5 * (Ctrl->D.spacing - FONT_HEIGHT_PRIMARY) * GMT->current.setting.font_annot[GMT_PRIMARY].size / PSL_POINTS_PER_INCH;	/* To center the text */
 							row_base_y += half_line_spacing;	/* Move to center of box */
-							if (strchr ("-~q", symbol[0]) && !strcmp (size, "-")) sprintf (size, "%gi", def_size);	/* If no size given then we must pick what we learned above */
+							if (strchr ("-~q", symbol[0]) && !strcmp (size, "-")) sprintf (size, "%gi", line_size);	/* If no size given then we must pick what we learned above */
 							if (symbol[0] == 'f') {	/* Front is different, must plot as a line segment */
 								double length, tlen, gap;
 								int n = sscanf (size, "%[^/]/%[^/]/%s", A, B, C);
@@ -1490,22 +1587,22 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								else if (n == 2 && B[0] != '-') {	/* Got line length and tickgap only */
 									length = Ctrl->S.scale * gmt_M_to_inch (GMT, A);	/* The length of the line */
 									gap = Ctrl->S.scale * gmt_M_to_inch (GMT, B);	/* The tick gap */
-									tlen = 0.3 * gap;		/* The default length of the tick is 30% of gap */
+									tlen = PSLEGEND_FRONT_TICK_SCL * gap;		/* The default length of the tick is 30% of gap */
 								}
 								else {	/* Got line length, select defaults for other things */
-									length = Ctrl->S.scale * gmt_M_to_inch (GMT, A);	/* The length of the line */
-									strcpy (B, "-1");		/* One centered tick */
-									tlen = 0.3 * length;		/* The default length of the tick is 30% of length */
+									length = Ctrl->S.scale * get_the_size (GMT, A, line_size, 1.0);	/* The length of the line */
+									strcpy (B, PSLEGEND_FRONT_TICK);		/* One centered tick */
+									tlen = PSLEGEND_FRONT_TICK_SCL * length;		/* The default length of the tick is 30% of length */
 								}
 								if ((c = strchr (symbol, '+')) != NULL)	/* Pass along all the given modifiers */
 									strcpy (sub, c);
 								else	/* The necessary arguments not supplied, provide reasonable defaults */
-									sprintf (sub, "+l+b");	/* Box to the left of the line is our default front symbol */
+									sprintf (sub, PSLEGEND_FRONT_SYMBOL);	/* Box to the left of the line is our default front symbol */
 								x = 0.5 * length;
 								/* Place pen and fill colors in segment header */
 								sprintf (buffer, "-Sf%s/%gi%s", B, tlen, sub);
 								if (txt_c[0] != '-') {strcat (buffer, " -G"); strcat (buffer, txt_c);}
-								if (txt_d[0] != '-') {strcat (buffer, " -W"); strcat (buffer, txt_d);}
+								strcat (buffer, " -W"); strcat (buffer, (txt_d[0] != '-') ? txt_d : gmt_putpen (GMT, &GMT->current.setting.map_default_pen));	/* Always give an explicit pen (given or default) so this segment does not inherit the previous entry's pen */
 								/* Prepare next output segment */
 								if ((D[FRONT] = pslegend_get_dataset_pointer (API, D[FRONT], GMT_IS_LINE, GMT_SMALL_CHUNK, 2U, 2U, false)) == NULL) return (API->error);
 								S[FRONT] = pslegend_get_segment (D, FRONT, n_fronts);	/* Next front segment */
@@ -1521,13 +1618,12 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								pslegend_maybe_realloc_table (GMT, D[FRONT]->table[0], n_fronts, 2U);
 							}
 							else if (symbol[0] == 'q') {	/* Quoted line is different, must plot as a line segment */
-								double length = Ctrl->S.scale * gmt_M_to_inch (GMT, size);	/* The length of the line */;
-
+								double length = Ctrl->S.scale * get_the_size (GMT, size, line_size, 1.0);	/* The length of the line */
 								if ((D[QLINE] = pslegend_get_dataset_pointer (API, D[QLINE], GMT_IS_LINE, GMT_SMALL_CHUNK, 2U, 2U, false)) == NULL) return (API->error);
 								x = 0.5 * length;
 								/* Place pen and fill colors in segment header */
 								sprintf (buffer, "-S%s", symbol);
-								if (txt_d[0] != '-') {strcat (buffer, " -W"); strcat (buffer, txt_d);}
+								strcat (buffer, " -W"); strcat (buffer, (txt_d[0] != '-') ? txt_d : gmt_putpen (GMT, &GMT->current.setting.map_default_pen));	/* Always give an explicit pen (given or default) so this segment does not inherit the previous entry's pen */
 								S[QLINE] = pslegend_get_segment (D, QLINE, n_quoted_lines);	/* Next quoted line segment */
 								S[QLINE]->header = strdup (buffer);
 								GMT_Report (API, GMT_MSG_DEBUG, "QLINE: %s\n", buffer);
@@ -1541,13 +1637,12 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								pslegend_maybe_realloc_table (GMT, D[QLINE]->table[0], n_quoted_lines, 2U);
 							}
 							else if (symbol[0] == '~') {	/* Decorated line is different, must plot as a line segment */
-								double length = Ctrl->S.scale * gmt_M_to_inch (GMT, size);	/* The length of the line */;
-
+								double length = Ctrl->S.scale * get_the_size (GMT, size, line_size, 1.0);	/* The length of the line */
 								if ((D[DLINE] = pslegend_get_dataset_pointer (API, D[DLINE], GMT_IS_LINE, GMT_SMALL_CHUNK, 2U, 2U, false)) == NULL) return (API->error);
 								x = 0.5 * length;
 								/* Place pen and fill colors in segment header */
 								sprintf (buffer, "-S%s", symbol);
-								if (txt_d[0] != '-') {strcat (buffer, " -W"); strcat (buffer, txt_d);}
+								strcat (buffer, " -W"); strcat (buffer, (txt_d[0] != '-') ? txt_d : gmt_putpen (GMT, &GMT->current.setting.map_default_pen));	/* Always give an explicit pen (given or default) so this segment does not inherit the previous entry's pen */
 								S[DLINE] = pslegend_get_segment (D, DLINE, n_decorated_lines);	/* Next decorated line segment */
 								S[DLINE]->header = strdup (buffer);
 								GMT_Report (API, GMT_MSG_DEBUG, "DLINE: %s\n", buffer);
@@ -1566,6 +1661,8 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								S[SYM]->data[GMT_X][0] = x_off + off_ss;
 								S[SYM]->data[GMT_Y][0] = row_base_y;
 								S[SYM]->n_rows = 1;
+								if (strchr ("eEjJrRmw", symbol[0]) && strchr (size, '/'))	/* Got command-line symbol syntax like dir/major/minor for ellipse, rect, rotrect, wedge, or math angle; replace with commas */
+									gmt_strrepc (size, '/', ',');
 								if (symbol[0] == 'k' || symbol[0] == 'K')	/* Custom symbols need the full name after k */
 									sprintf (sub, "%s", symbol);
 								else	/* Just the symbol code is needed */
@@ -1577,11 +1674,10 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 										x = Ctrl->S.scale * gmt_M_to_inch (GMT, B);
 										y = Ctrl->S.scale * gmt_M_to_inch (GMT, C);
 									}
-									else {	/* Ellipse needs more arguments; we use minor = 0.65*major, az = 0 */
-										x = Ctrl->S.scale * gmt_M_to_inch (GMT, size);
-										if (gmt_M_is_zero (x)) x = Ctrl->S.scale * def_size;	/* Safety valve */
-										az1 = 0.0;
-										y = 0.65 * x;
+									else {	/* Ellipse needs more arguments; we use minor = 0.55*major, az = 25 */
+										x = Ctrl->S.scale * get_the_size (GMT, size, def_size, PSLEGEND_MAJOR_SCL);	/* The major axis of the ellipse */
+										az1 = PSLEGEND_MAJOR_ANGLE;
+										y = PSLEGEND_MINOR_SCL * x;
 									}
 									S[SYM]->data[2][0] = az1;
 									S[SYM]->data[3][0] = x;
@@ -1594,11 +1690,10 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 										x = Ctrl->S.scale * gmt_M_to_inch (GMT, B);
 										y = Ctrl->S.scale * gmt_M_to_inch (GMT, C);
 									}
-									else {	/* Rotated rectangle needs more arguments; we use height = 0.65*width, az = 30 */
-										x = Ctrl->S.scale * gmt_M_to_inch (GMT, size);
-										if (gmt_M_is_zero (x)) x = Ctrl->S.scale * def_size;	/* Safety valve */
-										y = 0.65 * x;
-										az1 = 30.0;
+									else {	/* Rotated rectangle needs more arguments; we use height = 0.55*width, az = 25 */
+										x = Ctrl->S.scale * get_the_size (GMT, size, def_size, PSLEGEND_MAJOR_SCL);	/* The width of the rectangle */
+										y = PSLEGEND_MINOR_SCL * x;
+										az1 = PSLEGEND_RECT_ANGLE;
 									}
 									S[SYM]->data[2][0] = az1;
 									S[SYM]->data[3][0] = x;
@@ -1612,8 +1707,8 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 										x = Ctrl->S.scale * gmt_M_to_inch (GMT, B);
 									}
 									else {	/* No dir given, default to horizontal */
-										az1 = 0.0;
-										x = Ctrl->S.scale * gmt_M_to_inch (GMT, size);
+										az1 = PSLEGEND_VECTOR_ANGLE;
+										x = Ctrl->S.scale * get_the_size (GMT, size, line_size, 1.0);	/* The length of the vector */
 									}
 									if (strchr (size, '/') && gmt_M_compat_check (GMT, 4))  {	/* The necessary arguments was supplied via GMT4 size arguments */
 										i = 0;
@@ -1630,16 +1725,19 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 										else	/* Add +jc */
 											strcat (sub, "+jc");
 									}
-									else	/* The necessary arguments not supplied, so we make a reasonable default */
-										sprintf (sub, "v%gi+jc+e", 0.3*x);	/* Head size is 30% of length */
+									else {	/* The necessary arguments not supplied, so we make a reasonable default */
+										double hs = PSLEGEND_VECTOR_SIZE * x;	/* Max head size is 40% of length */
+										if (hs > (H / 0.57735026919)) hs = H / 0.57735026919;	/* Truncate if head width is too large compared to H */
+										sprintf (sub, PSLEGEND_VECTOR_ARG, hs);	/* Remember, the format has %gi to set this in inches */
+									}
 									if (txt_c[0] == '-') strcat (sub, "+g-");
 									else { strcat (sub, "+g"); strcat (sub, txt_c);}
 									if (txt_d[0] == '-') strcat (sub, "+p-");
-									else {
+									else {	/* Set vector head pen to half the size of vector pen */
 										struct GMT_PEN pen;
 										gmt_M_memset (&pen, 1, struct GMT_PEN);	/* Wipe the pen */
 										gmt_getpen (GMT, txt_d, &pen);
-										pen.width *= 0.5;
+										pen.width *= PSLEGEND_VECTOR_PEN;
 										strcat (sub, "+p"); strcat (sub, gmt_putpen (API->GMT, &pen));
 									}
 									S[SYM]->data[2][0] = az1;
@@ -1652,9 +1750,8 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 										y = Ctrl->S.scale * gmt_M_to_inch (GMT, B);
 									}
 									else {	/* Rectangle also need more args, we use h = 0.65*w */
-										x = Ctrl->S.scale * gmt_M_to_inch (GMT, size);
-										if (gmt_M_is_zero (x)) x = Ctrl->S.scale * def_size;	/* Safety valve */
-										y = 0.65 * x;
+										x = Ctrl->S.scale * get_the_size (GMT, size, def_size, PSLEGEND_MAJOR_SCL);	/* The width of the rectangle */
+										y = PSLEGEND_MINOR_SCL * x;
 									}
 									S[SYM]->data[2][0] = x;
 									S[SYM]->data[3][0] = y;
@@ -1666,11 +1763,10 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 										y = Ctrl->S.scale * gmt_M_to_inch (GMT, B);
 										r = Ctrl->S.scale * gmt_M_to_inch (GMT, C);
 									}
-									else {	/* Rounded rectangle also need more args, we use h = 0.65*w and r = 0.1*w */
-										x = Ctrl->S.scale * gmt_M_to_inch (GMT, size);
-										if (gmt_M_is_zero (x)) x = Ctrl->S.scale * def_size;	/* Safety valve */
-										y = 0.65 * x;
-										r = 0.1 * x;
+									else {	/* Rounded rectangle also need more args, we use h = 0.55*w and r = 0.1*w */
+										x = Ctrl->S.scale * get_the_size (GMT, size, def_size, PSLEGEND_MAJOR_SCL);	/* The width of the rectangle */
+										y = PSLEGEND_MINOR_SCL * x;
+										r = PSLEGEND_ROUND_SCL * x;
 									}
 									S[SYM]->data[2][0] = x;
 									S[SYM]->data[3][0] = y;
@@ -1684,26 +1780,32 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 										az2 = atof (C);
 									}
 									else {	/* Math angle need more args, we set fixed az1,az22 as 10 45 */
-										x = Ctrl->S.scale * gmt_M_to_inch (GMT, size);
-										if (gmt_M_is_zero (x)) x = Ctrl->S.scale * def_size;	/* Safety valve */
-										az1 = 10;	az2 = 45;
+										x = Ctrl->S.scale * get_the_size (GMT, size, def_size, PSLEGEND_MATH_SCL);	/* radius xx% of default size */
+										az1 = PSLEGEND_ANGLE_START;	az2 = PSLEGEND_ANGLE_STOP;
 									}
 									/* We want to center the arc around its mid-point */
-									m_az = 0.5 * (az1 + az2);
-									dx = 0.25 * x * cosd (m_az);
+									//m_az = 0.5 * (az1 + az2);
+									//dx = 0.25 * x * cosd (m_az);
 									if (!strchr (symbol, '+'))  {	/* The necessary arguments not supplied! */
-										sprintf (sub, "m%gi+b+e", 0.3*x);	/* Double heads, head size 30% of diameter */
+										sprintf (sub, "m%gi+b+e", PSLEGEND_MATH_SIZE * x);	/* Double heads, head size 100% of radius */
 									}
 									if (txt_c[0] == '-') strcat (sub, "+g-");
 									else { strcat (sub, "+g"); strcat (sub, txt_c);}
 									if (txt_d[0] == '-') strcat (sub, "+p-");
-									else { strcat (sub, "+p"); strcat (sub, txt_d);}
-									S[SYM]->data[GMT_X][0] -= dx;
+									else {	/* Set vector head pen to half the size of vector pen */
+										struct GMT_PEN pen;
+										gmt_M_memset (&pen, 1, struct GMT_PEN);	/* Wipe the pen */
+										gmt_getpen (GMT, txt_d, &pen);
+										pen.width *= PSLEGEND_VECTOR_PEN;
+										strcat (sub, "+p"); strcat (sub, gmt_putpen (API->GMT, &pen));
+									}
+									//S[SYM]->data[GMT_X][0] -= dx;
 									S[SYM]->data[2][0] = x;
 									S[SYM]->data[3][0] = az1;
 									S[SYM]->data[4][0] = az2;
 								}
 								else if (symbol[0] == 'w') {	/* Wedge also need more args; we set fixed az1,az2 as -30 30 */
+									//double dy;
 									if (strchr (size, ',')) {	/* We got az1,az2,d */
 										sscanf (size, "%[^,],%[^,],%s", A, B, C);
 										az1 = atof (A);
@@ -1711,21 +1813,23 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 										x = Ctrl->S.scale * gmt_M_to_inch (GMT, C);
 									}
 									else {
-										x = Ctrl->S.scale * gmt_M_to_inch (GMT, size);
-										if (gmt_M_is_zero (x)) x = Ctrl->S.scale * def_size;	/* Safety valve */
-										az1 = -30;	az2 = 30;
+										x = Ctrl->S.scale * get_the_size (GMT, size, def_size, 1);	/* radius is default size */
+										az1 = PSLEGEND_ANGLE_START;	az2 = PSLEGEND_ANGLE_STOP;
 									}
 									/* We want to center the wedge around its mid-point */
-									m_az = 0.5 * (az1 + az2);
-									dx = 0.25 * x * cosd (m_az);
-									S[SYM]->data[GMT_X][0] -= dx;
-									S[SYM]->data[2][0] = x_off + off_ss - dx;
+									//m_az = 0.5 * (az1 + az2);
+									//dx = 0.25 * x * cosd (m_az);
+									//dx = 0.5 * x * cosd (m_az);
+									//dy = 0.5 * x * sind (m_az);
+									//S[SYM]->data[GMT_X][0] -= dx;
+									//S[SYM]->data[GMT_Y][0] -= dy;
+									//S[SYM]->data[2][0] = x_off + off_ss - dx;
+									S[SYM]->data[2][0] = x;
 									S[SYM]->data[3][0] = az1;
 									S[SYM]->data[4][0] = az2;
 								}
 								else {
-									x = Ctrl->S.scale * gmt_M_to_inch (GMT, size);
-									if (gmt_M_is_zero (x)) x = Ctrl->S.scale * def_size;	/* Safety valve */
+									x = Ctrl->S.scale * get_the_size (GMT, size, def_size, 1.0);	/* Regular size */
 									S[SYM]->data[2][0] = x;
 								}
 								/* Place pen and fill colors in segment header */
@@ -1738,7 +1842,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								SH = gmt_get_DS_hidden (S[SYM]);
 								if (S[SYM]->n_rows == SH->n_alloc) S[SYM]->data = gmt_M_memory (GMT, S[SYM]->data, SH->n_alloc += GMT_SMALL_CHUNK, char *);
 								n_symbols++;
-								D[SYM]->n_segments++;
+								D[SYM]->n_segments++;	D[SYM]->n_records++;
 								pslegend_maybe_realloc_table (GMT, D[SYM]->table[0], n_symbols, 1U);
 							}
 							/* Finally, print text; skip when empty */
@@ -1754,8 +1858,9 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								pslegend_maybe_realloc_segment (GMT, S[TXT]);
 								GMT_Report (API, GMT_MSG_DEBUG, "TXT: %s\n", buffer);
 							}
-							column_number++;
-							if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.dim[GMT_X], row_base_y);
+							confidence_band = (orig_symbol == 'L');	/* Next entry will do line and need to overwrite */
+							if (!confidence_band) column_number++;
+							if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.R.dim[GMT_X], row_base_y);
 							drawn = true;
 							break;
 
@@ -1774,7 +1879,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								S[PAR] = D[PAR]->table[0]->segment[n_para] = GMT_Alloc_Segment (GMT->parent, GMT_WITH_STRINGS, n_par_lines, 0U, NULL, NULL);
 							if (!flush_paragraph) {	/* No header record, create one and add as segment header */
 								d_off = 0.5 * (Ctrl->D.spacing - FONT_HEIGHT_PRIMARY) * GMT->current.setting.font_annot[GMT_PRIMARY].size / PSL_POINTS_PER_INCH;
-								sprintf (buffer, "%g %g 0 %gp,%d,%s TL %gi %gi j", col_left_x, row_base_y - d_off, GMT->current.setting.font_annot[GMT_PRIMARY].size, GMT->current.setting.font_annot[GMT_PRIMARY].id, txtcolor, one_line_spacing, Ctrl->D.dim[GMT_X] - 2.0 * Ctrl->C.off[GMT_X]);
+								sprintf (buffer, "%g %g 0 %gp,%d,%s TL %gi %gi j", col_left_x, row_base_y - d_off, GMT->current.setting.font_annot[GMT_PRIMARY].size, GMT->current.setting.font_annot[GMT_PRIMARY].id, txtcolor, one_line_spacing, Ctrl->D.R.dim[GMT_X] - 2.0 * Ctrl->C.off[GMT_X]);
 								S[PAR]->header = strdup (buffer);
 								GMT_Report (API, GMT_MSG_DEBUG, "PAR: %s\n", buffer);
 							}
@@ -1814,7 +1919,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 								v_line_y_start = d_line_last_y0;
 							}
 							column_number = 0;
-							if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.dim[GMT_X], row_base_y);
+							if (Ctrl->F.debug) pslegend_drawbase (GMT, PSL, Ctrl->D.refpoint->x, Ctrl->D.refpoint->x + Ctrl->D.R.dim[GMT_X], row_base_y);
 							break;
 
 						default:
@@ -1831,8 +1936,8 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 	/* If there is clearance and fill is active we must paint the clearance row */
 	if (Ctrl->C.off[GMT_Y] > 0.0) pslegend_fillcell (GMT, Ctrl->D.refpoint->x, row_base_y-Ctrl->C.off[GMT_Y], row_base_y, x_off_col, &d_line_after_gap, n_columns, fill);
 
-	for (set = INFO_HIDDEN; set <= INFO_GIVEN; set++) {
-		if (use[set] && GMT_Destroy_Data (API, &INFO[set]) != GMT_NOERROR) {	/* Remove the main input file from registration */
+	for (set = PSLEGEND_INFO_HIDDEN; set <= PSLEGEND_INFO_GIVEN; set++) {	/* Free information table */
+		if (use[set] && GMT_Destroy_Data (API, &INFO[set]) != GMT_NOERROR) {
 			Return (API->error);
 		}
 	}
@@ -1840,12 +1945,19 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 		Return (API->error);
 
 	if (Ctrl->F.active && !do_width) {	/* Draw legend frame box */
-		gmt_draw_map_panel (GMT, Ctrl->D.refpoint->x + 0.5 * Ctrl->D.dim[GMT_X], Ctrl->D.refpoint->y + 0.5 * Ctrl->D.dim[GMT_Y], 2U, Ctrl->F.panel);
+		gmt_draw_map_panel (GMT, Ctrl->D.refpoint->x + 0.5 * Ctrl->D.R.dim[GMT_X], Ctrl->D.refpoint->y + 0.5 * Ctrl->D.R.dim[GMT_Y], 2U, Ctrl->F.panel);
 	}
 
 	PSL_setorigin (PSL, -shrink[XLO], -shrink[YLO], 0.0, PSL_FWD);	/* Adjustments due to subplot set -C */
 
 	/* Time to plot any symbols, text, fronts, quoted lines, and paragraphs we collected in the loop */
+
+	/* Because legend deals in absolute measurements we must guard against the possibility that legend
+	 * may be called inside an inset, where there may be an overall shrink factor < 1.0 in effect.
+	 * To counter that we use the inverse scale here instead of a fixed -Jx1i [which is the normal scale] */
+
+	if (API->inset_shrink)	/* Must do that override to counteract scaling in called modules */
+		sprintf (J_arg, "-Jx%.12gi", 1.0 / API->inset_shrink_scale);	/* Undo shrinking if any */
 
 	if (D[FRONT]) {
 		pslegend_free_unused_segments (GMT, D[FRONT]->table[0], n_fronts);
@@ -1859,7 +1971,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 		if (GMT_Open_VirtualFile (API, GMT_IS_DATASET, GMT_IS_LINE, GMT_IN|GMT_IS_REFERENCE, D[FRONT], string) != GMT_NOERROR) {
 			Return (API->error);
 		}
-		sprintf (buffer, "-R0/%g/0/%g -Jx1i -O -K -N -Sf0.1i %s --GMT_HISTORY=readonly", GMT->current.proj.rect[XHI], GMT->current.proj.rect[YHI], string);
+		sprintf (buffer, "-R0/%g/0/%g %s -O -K -N -Sf0.1i %s --GMT_HISTORY=readonly", GMT->current.proj.rect[XHI], GMT->current.proj.rect[YHI], J_arg, string);
 		GMT_Report (API, GMT_MSG_DEBUG, "RUNNING: FRONT: gmt %s %s\n", plot_points[ID], buffer);
 		if (GMT_Call_Module (API, plot_points[ID], GMT_MODULE_CMD, buffer) != GMT_NOERROR) {	/* Plot the fronts */
 			Return (API->error);
@@ -1881,7 +1993,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 		if (GMT_Open_VirtualFile (API, GMT_IS_DATASET, GMT_IS_LINE, GMT_IN|GMT_IS_REFERENCE, D[QLINE], string) != GMT_NOERROR) {
 			Return (API->error);
 		}
-		sprintf (buffer, "-R0/%g/0/%g -Jx1i -O -K -N -Sqn1 %s --GMT_HISTORY=readonly", GMT->current.proj.rect[XHI], GMT->current.proj.rect[YHI], string);
+		sprintf (buffer, "-R0/%g/0/%g %s -O -K -N -Sqn1 %s --GMT_HISTORY=readonly", GMT->current.proj.rect[XHI], GMT->current.proj.rect[YHI], J_arg, string);
 		GMT_Report (API, GMT_MSG_DEBUG, "RUNNING: QLINE: gmt %s %s\n", plot_points[ID], buffer);
 		if (GMT_Call_Module (API, plot_points[ID], GMT_MODULE_CMD, buffer) != GMT_NOERROR) {	/* Plot the quoted lines */
 			Return (API->error);
@@ -1903,7 +2015,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 		if (GMT_Open_VirtualFile (API, GMT_IS_DATASET, GMT_IS_LINE, GMT_IN|GMT_IS_REFERENCE, D[DLINE], string) != GMT_NOERROR) {
 			Return (API->error);
 		}
-		sprintf (buffer, "-R0/%g/0/%g -Jx1i -O -K -N -S~n1:+sc0.1 %s --GMT_HISTORY=readonly", GMT->current.proj.rect[XHI], GMT->current.proj.rect[YHI], string);
+		sprintf (buffer, "-R0/%g/0/%g %s -O -K -N -S~n1:+sc0.1 %s --GMT_HISTORY=readonly", GMT->current.proj.rect[XHI], GMT->current.proj.rect[YHI], J_arg, string);
 		GMT_Report (API, GMT_MSG_DEBUG, "RUNNING: DLINE: gmt %s %s\n", plot_points[ID], buffer);
 		if (GMT_Call_Module (API, plot_points[ID], GMT_MODULE_CMD, buffer) != GMT_NOERROR) {	/* Plot the decorated lines */
 			Return (API->error);
@@ -1926,7 +2038,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 			Return (API->error);
 		}
 		/* Because the sizes internally are in inches we must tell plot that inch is the current length unit */
-		sprintf (buffer, "-R0/%g/0/%g -Jx1i -O -K -N -S %s --PROJ_LENGTH_UNIT=inch --GMT_HISTORY=readonly", GMT->current.proj.rect[XHI], GMT->current.proj.rect[YHI], string);
+		sprintf (buffer, "-R0/%g/0/%g %s -O -K -N -S %s --PROJ_LENGTH_UNIT=inch --GMT_HISTORY=readonly", GMT->current.proj.rect[XHI], GMT->current.proj.rect[YHI], J_arg, string);
 		GMT_Report (API, GMT_MSG_DEBUG, "RUNNING: SYM: gmt %s %s\n", plot_points[ID], buffer);
 		if (GMT_Call_Module (API, plot_points[ID], GMT_MODULE_CMD, buffer) != GMT_NOERROR) {	/* Plot the symbols */
 			Return (API->error);
@@ -1938,6 +2050,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 	if (D[TXT]) {
 		pslegend_free_unused_rows (GMT, D[TXT]->table[0]->segment[0], krow[TXT]);
 		D[TXT]->n_records = krow[TXT];
+		D[TXT]->n_segments = 1;
 #ifdef DEBUG
 		if (Ctrl->DBG.active) {
 			if (GMT_Write_Data (API, GMT_IS_DATASET, GMT_IS_FILE, GMT_IS_NONE, GMT_IO_RESET, NULL, "dump_txt.txt", D[TXT]) != GMT_NOERROR) {
@@ -1949,7 +2062,7 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 		if (GMT_Open_VirtualFile (API, GMT_IS_DATASET, GMT_IS_NONE, GMT_IN|GMT_IS_REFERENCE, D[TXT], string) != GMT_NOERROR) {
 			Return (API->error);
 		}
-		sprintf (buffer, "-R0/%g/0/%g -Jx1i -O -K -N -F+f+j %s --GMT_HISTORY=readonly", GMT->current.proj.rect[XHI], GMT->current.proj.rect[YHI], string);
+		sprintf (buffer, "-R0/%g/0/%g %s -O -K -N -F+f+j %s --GMT_HISTORY=readonly", GMT->current.proj.rect[XHI], GMT->current.proj.rect[YHI], J_arg, string);
 		GMT_Report (API, GMT_MSG_DEBUG, "RUNNING: TXT: gmt %s %s\n", plot_text[ID], buffer);
 		if (GMT_Call_Module (API, plot_text[ID], GMT_MODULE_CMD, buffer) != GMT_NOERROR) {	/* Plot the symbol labels */
 			Return (API->error);
@@ -1959,18 +2072,20 @@ EXTERN_MSC int GMT_pslegend (void *V_API, int mode, void *args) {
 		}
 	}
 	if (D[PAR]) {
+		n_para++;
 		if (n_para >= 0) {	/* End of last paragraph for sure */
 			S[PAR]->n_rows = krow[PAR];
+			D[PAR]->table[0]->n_segments = D[PAR]->n_segments = n_para;
 			D[PAR]->table[0]->n_records += S[PAR]->n_rows;
 			D[PAR]->n_records = D[PAR]->table[0]->n_records;
-			S[PAR] = D[PAR]->table[0]->segment[n_para] = GMT_Alloc_Segment (GMT->parent, GMT_WITH_STRINGS, krow[PAR], 0U, NULL, S[PAR]);
+			S[PAR] = D[PAR]->table[0]->segment[n_para-1] = GMT_Alloc_Segment (GMT->parent, GMT_WITH_STRINGS, krow[PAR], 0U, NULL, S[PAR]);
 		}
 
 		/* Create option list, register D[PAR] as input source */
 		if (GMT_Open_VirtualFile (API, GMT_IS_DATASET, GMT_IS_TEXT, GMT_IN|GMT_IS_REFERENCE, D[PAR], string) != GMT_NOERROR) {
 			Return (API->error);
 		}
-		sprintf (buffer, "-R0/%g/0/%g -Jx1i -O -K -N -M -F+a+f+j %s --GMT_HISTORY=readonly", GMT->current.proj.rect[XHI], GMT->current.proj.rect[YHI], string);
+		sprintf (buffer, "-R0/%g/0/%g %s -O -K -N -M -F+a+f+j %s --GMT_HISTORY=readonly", GMT->current.proj.rect[XHI], GMT->current.proj.rect[YHI], J_arg, string);
 		GMT_Report (API, GMT_MSG_DEBUG, "RUNNING: PAR: gmt %s %s\n", plot_text[ID], buffer);
 		if (GMT_Call_Module (API, plot_text[ID], GMT_MODULE_CMD, buffer) != GMT_NOERROR) {	/* Plot paragraphs */
 			Return (API->error);

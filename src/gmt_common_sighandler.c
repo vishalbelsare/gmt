@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -23,6 +23,13 @@
  * Version: 5
  */
 
+/*
+ *
+ * A) List of exported gmt_* functions available to modules and libraries via gmt_dev.h:
+ * gmt_sig_handler_unix
+ * gmt_sig_handler_win32
+ */
+
 #ifndef NO_SIGHANDLER
 
 #include "gmt_dev.h"
@@ -31,13 +38,13 @@
 #ifdef WIN32
 #include <windows.h>
 /* win32: Install Windows SIGINT handling only */
-BOOL sig_handler_win32 (DWORD dwType) {
+BOOL gmt_sig_handler_win32 (DWORD dwType) {
     if (dwType == CTRL_C_EVENT)
 		gmtlib_terminate_session ();	/* Delete session dir, call GMT_Destroy_Session, and for CLI call exit */
 	return TRUE;
 }
 /* install WIN32 signal handler like this: 
- *  SetConsoleCtrlHandler((PHANDLER_ROUTINE)sig_handler_win32,TRUE));
+ *  SetConsoleCtrlHandler((PHANDLER_ROUTINE)gmt_sig_handler_win32,TRUE));
  */
 #else
 /* unix: Install broader sighandler via backtrace handling of SIGINT, SIGILL, SIGFPE, SIGBUS and SIGSEGV */
@@ -55,10 +62,11 @@ BOOL sig_handler_win32 (DWORD dwType) {
 #include <execinfo.h>
 #else
 #include <stdbool.h>
-int backtrace(void **buffer, int size) {
+GMT_LOCAL int backtrace(void **buffer, int size) {
 	return 0;
 }
-void backtrace_symbols_fd(void *const *buffer, int size, int fd) {
+
+GMT_LOCAL void backtrace_symbols_fd(void *const *buffer, int size, int fd) {
 	static bool once = false;
 	if (once) return;
 	once = true;
@@ -72,13 +80,19 @@ void backtrace_symbols_fd(void *const *buffer, int size, int fd) {
 # if __DARWIN_UNIX03
 #  ifdef __x86_64__
 #   define UC_IP(uc) ((void *) (uc)->uc_mcontext->__ss.__rip)
-#  elif __arm64__	/* Apple Silicon, e.g. M1 */
+#  elif defined(__arm64__)	/* Apple Silicon, e.g. M1 */
 #   define UC_IP(uc) ((void *) (uc)->uc_mcontext->__ss.__pc)
+#  elif defined(__POWERPC__)	/* Both ppc and ppc64 */
+#   define UC_IP(uc) ((void *) (uc)->uc_mcontext->__ss.__srr0)
 #  else
 #   define UC_IP(uc) ((void *) (uc)->uc_mcontext->__ss.__eip)
 #  endif
 # else
-#  define UC_IP(uc) ((void *) (uc)->uc_mcontext->ss.eip)
+#  ifdef __ppc__
+#   define UC_IP(uc) ((void *) (uc)->uc_mcontext->ss.srr0)
+#  else
+#   define UC_IP(uc) ((void *) (uc)->uc_mcontext->ss.eip)
+#  endif
 # endif
 #elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
 # ifdef __x86_64__
@@ -103,6 +117,8 @@ void backtrace_symbols_fd(void *const *buffer, int size, int fd) {
 #  define UC_IP(uc) ((void *) (uc)->uc_mcontext.arm_pc)
 # elif defined( __hppa__)
 #  define UC_IP(uc) ((void *) (uc)->uc_mcontext.sc_iaoq[0])
+# elif defined( __loongarch__)
+#  define UC_IP(uc) ((void *) (uc)->uc_mcontext.__pc)
 # elif defined(__m68k__)
 #  define UC_IP(uc) ((void *) (uc)->uc_mcontext.gregs[R_PC])
 # elif defined(__riscv)
@@ -190,7 +206,7 @@ static void process_info() {
 }
 #endif
 
-void sig_handler_unix (int sig_num, siginfo_t *info, void *ucontext) {
+void gmt_sig_handler_unix (int sig_num, siginfo_t *info, void *ucontext) {
 	if (sig_num == SIGINT) {
 		/* Catch Ctrl-c and remove modern session sub-directory (if it exists) before exit */
 		struct sigaction act, oldact;
@@ -227,7 +243,7 @@ void sig_handler_unix (int sig_num, siginfo_t *info, void *ucontext) {
  *   struct sigaction act;
  *   sigemptyset (&act.sa_mask);
  *   act.sa_flags = SA_NODEFER;
- *   act.sa_handler = sig_handler_unix;
+ *   act.sa_handler = gmt_sig_handler_unix;
  *   sigaction (SIGINT,  &act, NULL);
  *   act.sa_flags = 0;
  *   sigaction (SIGBUS,  &act, NULL);

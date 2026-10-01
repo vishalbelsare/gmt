@@ -17,7 +17,7 @@ Synopsis
 [ |-C|\ *cm4file* ]
 [ |-D|\ *Dstfile* ]
 [ |-E|\ *f107file* ]
-[ |-F|\ *flags* ]
+[ |-F|\ *flags*\ [**+l**\ *low/high*] ]
 [ |-G| ]
 [ |-S|\ **c**\|\ **l**\ *low/high* ]
 [ |SYN_OPT-V| ]
@@ -51,7 +51,7 @@ Optional Arguments
     longitude instead). Normally, the third and fourth columns must
     contain altitude (in km) and time, respectively, but if one or both
     of these are constant for all records they can be supplied via the
-    **-A** option instead and are thus not expected in the input file.
+    |-A| option instead and are thus not expected in the input file.
     If no input file is given we read standard input. |br|
     A note about the CM4
     validity domain. The core field of CM4 is valid from 1960-2002.5 but
@@ -63,7 +63,7 @@ Optional Arguments
     from:ftp://ftp.ngdc.noaa.gov/STP/GEOMAGNETIC_DATA/INDICES/DST/ (the
     *Dst* coefficients) and
     http://umbra.nascom.nasa.gov/sdb/yohkoh/ys_dbase/indices_flux_raw/Penticton_Absolute/monthly/MONTHPLT.ABS
-    (The *F10.7* index file is a MONTHPLT.ABS). NOTE: since the *Dst* files
+    (The *F10.7* index file is a MONTHPLT.ABS). **Note**: since the *Dst* files
     in the .../DST/ directory are still only up to 2006, for GMT4.5.3 and after
     we extended the *Dst* until August 2009 by reformatting the data in the
     preliminary file Est_Ist_index_0_mean.pli, which is at
@@ -76,6 +76,12 @@ Optional Arguments
     ftp://ftp.ngdc.noaa.gov/STP/space-weather/solar-data/solar-features/
     solar-radio/noontime-flux/penticton/penticton_absolute/listings/
     listing_drao_noontime-flux-absolute_monthly.txt
+
+    Another update in January 2025. The NASA site above no longer updated its data and now we use *F10.7* data
+    downloaded from https://celestrak.org/spacedata/SW-All.csv  (Matlab references this site as well). But it
+    contains only daily data. Hence we computed the monthly averages. However, comparing previous and computed
+    averages from this site show some differences. For example the first 4 months of 2018 (replaced to in this
+    update) compare like this: [609 632 608 634] (nasa) _vs_ [699 725 683 700] (celestrak).
 
 .. _-A:
 
@@ -110,7 +116,7 @@ Optional Arguments
 
 .. _-F:
 
-**-F**\ *flags*
+**-F**\ *flags*\ [**+l**\ *low/high*]
     Selects output items; *flags* is a string made up of one or more of
     these characters:
 
@@ -149,7 +155,7 @@ Optional Arguments
     **7** means CM4 Toroidal field
 
     **9** means Core field from IGRF and other contributions from CM4.
-    DO NOT USE BOTH 0 AND 9.
+    Do **not** use both 0 and 9.
 
     Appending several numbers (1-7) will add up the different
     contributions. For example **-Ft**/**12** computes the total field
@@ -160,6 +166,20 @@ Optional Arguments
     but output the field components. The data is written out in the
     order they appear in *flags* [Default is **-Frthxyzdi**/**1**]. **Note**:
     You can further select a subset of fields via **-o**.
+
+    Append **+l**\ *low/high* to limit the IGRF contribution to the spherical
+    harmonic degrees in the *low/high* band [all degrees]. This modifier is only
+    available for the IGRF model, that is, when **-F**...\ /**0** is used.
+    **Note**: The IGRF only has degrees up to 10 before 1995 and up to 13 from
+    1995 onwards, so a *high* beyond that limit is truncated.
+
+    **Note**: The **+l** modifier requires a version later than GMT 6.7.0. Earlier versions do
+    not know it and will read its digits as CM4 field source codes instead: most
+    bands then fail with a misleading message about selecting both the CM4 core
+    and the IGRF, but a band such as **+l5/2**, whose digits happen to be valid
+    source codes other than the core, is silently ignored and the complete IGRF
+    field is returned. Check with **gmt --version** before using **+l** in a
+    script that may run against an older installation.
 
 .. _-G:
 
@@ -206,10 +226,10 @@ Optional Arguments
     :start-after: **Syntax**
     :end-before: **Description**
 
-.. |Add_-bi| replace:: [Default is 4 input columns unless **-A** is used].
+.. |Add_-bi| replace:: [Default is 4 input columns unless |-A| is used].
 .. include:: ../../explain_-bi.rst_
 
-.. |Add_-bo| replace:: [Default is reflected by **-F**].
+.. |Add_-bo| replace:: [Default is reflected by |-F|].
 .. include:: ../../explain_-bo.rst_
 
 .. |Add_-h| unicode:: 0x20 .. just an invisible code
@@ -238,15 +258,15 @@ To get the CM4 Total field, Declination and Inclination due to all but
 lithospheric and toroidal field at a one point location and decimal time
 2000.0, try
 
-   ::
+::
 
-    echo -28 38 0 2000.0 | gmt mgd77magref -A+y -Ftdi/13456
+  echo -28 38 0 2000.0 | gmt mgd77magref -A+y -Ftdi/13456
 
 To do the same as above but at noon (Universal Time) of first May 2001, try
 
-   ::
+::
 
-    echo -28 38 0 2001-05-01T12:00:00 | gmt mgd77magref -Ftdi/13456
+  echo -28 38 0 2001-05-01T12:00:00 | gmt mgd77magref -Ftdi/13456
 
 See Also
 --------
@@ -259,7 +279,7 @@ References
 ----------
 
 Comprehensive Modeling of the Geomagnetic Field, see
-`<https://onlinelibrary.wiley.com/doi/10.1111/j.1365-246X.2004.02421.x>`_
+`<https://doi.org/10.1111/j.1365-246X.2004.02421.x>`_.
 
 The International Geomagnetic Reference Field (IGRF), see
-`<https://www.ngdc.noaa.gov/IAGA/vmod/igrf.html>`_
+`<https://www.ngdc.noaa.gov/IAGA/vmod/igrf.html>`_.

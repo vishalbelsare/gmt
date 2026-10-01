@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -36,7 +36,7 @@
 
 #define GMT_SESSION_NAME	"gmtsession"	/* Default prefix for single-figure modern sessions */
 #define GMT_SESSION_FORMAT	0		/* Default entry into gmt_session_format|code arrays -> PDF */
-#define GMT_SESSION_CONVERT	"A"		/* Default psconvert options in gmt figure */
+#define GMT_SESSION_CONVERT	""		/* Default psconvert options in gmt figure */
 
 /* Declarations of modern mode module names.  These functions will
  * call the classically-named modules (e.g., plot will call psxy) but
@@ -71,6 +71,7 @@ EXTERN_MSC int GMT_sac (void *API, int mode, void *args);
 EXTERN_MSC int GMT_velo (void *API, int mode, void *args);
 EXTERN_MSC int GMT_segyz (void *API, int mode, void *args);
 EXTERN_MSC int GMT_segy (void *API, int mode, void *args);
+EXTERN_MSC int GMT_barb (void *API, int mode, void *args);
 
 EXTERN_MSC const char *gmt_current_name (const char *module, char modname[]);
 EXTERN_MSC const char *gmt_get_full_name (struct GMTAPI_CTRL *API, const char *module);

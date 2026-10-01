@@ -11,11 +11,11 @@ The **-B** option
 **Description**
 
 This is potentially the most complicated option in GMT, but most examples of its usage are actually quite simple. We
-distinguish between two sets of information: :ref:`Frame settings <cookbook/options:Frame settings>` and
-:ref:`Axes settings <cookbook/options:Axes settings>`.  These are set separately by their own **-B** invocations; hence
-multiple **-B** specifications may be specified. The :ref:`Frame settings <cookbook/options:Frame settings>` cover
+distinguish between two sets of information: :ref:`Frame settings <reference/options:Frame settings>` and
+:ref:`Axes settings <reference/options:Axes settings>`.  These are set separately by their own **-B** invocations; hence
+multiple **-B** specifications may be specified. The :ref:`Frame settings <reference/options:Frame settings>` cover
 things such as which axes should be plotted, canvas fill, plot title (and subtitle), and what type of gridlines be
-drawn, whereas the :ref:`Axes settings <cookbook/options:Axes settings>` deal with annotation, tick, and gridline
+drawn, whereas the :ref:`Axes settings <reference/options:Axes settings>` deal with annotation, tick, and gridline
 intervals, axes labels, and annotation units.
 
 Frame settings
@@ -26,8 +26,8 @@ The Frame settings are specified by
    **-B**\ [*axes*][**+b**][**+g**\ *fill*][**+i**\ [*val*]][**+n**][**+o**\ *lon/lat*][**+s**\ *subtitle*]\
    [**+t**\ *title*][**+w**\ [*pen*]][**+x**\ *fill*][**+y**\ *fill*][**+z**\ *fill*]
 
-The frame setting is optional but can be invoked once to override the defaults. The following modifiers can be appended
-to **-B** to control the Frame settings:
+The frame setting is optional but can be invoked once to override the defaults. The following directives and modifiers
+can be appended to **-B** to control the Frame settings:
 
 - *axes* to set which of the axes should be drawn and possibly annotated using a combination of the codes listed
   below [default is :doc:`theme dependent </theme-settings>`]. Borders omitted from the set of codes will not be drawn.
@@ -71,9 +71,10 @@ to **-B** to control the Frame settings:
   **0**].
 
 - **+o**\ *lon/lat* to produce oblique gridlines about another pole specified by *lon/lat* [default references to the
-  North pole]. **+o** is ignored if no gridlines are requested.
+  North pole]. **+o** is ignored if no gridlines are requested. **Note**: One cannot specify oblique gridlines for non-geographic projections as well as the
+  oblique Mercator projection.
 
-- **+n** to have no frame and annotations at all [default is contolled by *axes*].
+- **+n** to have no frame and annotations at all [default is controlled by *axes*].
 
 - **+t**\ *title* to place the string given in *title* centered above the plot frame [default is no title].
 
@@ -83,7 +84,7 @@ to **-B** to control the Frame settings:
 **Note**: Both **+t**\ *title* and **+s**\ *subtitle* may be set over multiple lines by breaking them up using the
 markers @^ or <break>.  To include LaTeX code as part of a single-line title or subtitle, enclose the expression
 with @[ markers (or alternatively <math> ... </math>) (requires ``latex`` and ``dvips`` to be installed). See the
-:doc:`/cookbook/gmt-latex` chapter for more details.
+:doc:`/reference/gmt-latex` chapter for more details.
 
 Axes settings
 ^^^^^^^^^^^^^
@@ -97,9 +98,10 @@ but you may also split this into two separate invocations for clarity, i.e.,
 
    | **-B**\ [**p**\|\ **s**][**x**\|\ **y**\|\ **z**][**+a**\ *angle*\|\ **n**\|\ **p**][**+e**\ [**l**\|\ **u**]][**+f**]\
      [**+l**\|\ **L**\ *label*][**+p**\ *prefix*][**+s**\|\ **S**\ *seclabel*][**+u**\ *unit*]
-   | **-B**\ [**p**\|\ **s**][**x**\|\ **y**\|\ **z**]\ *intervals*
+   | **-B**\ [**p**\|\ **s**][**x**\|\ **y**\|\ **z**]\ [**00**\|\ **000**]\ *intervals*
+   | **-B0**
 
-The following modifiers can be appended to **-B** to control the Axes settings:
+The following directives and modifiers can be appended to **-B** to control the Axes settings:
 
 - **p**\|\ **s** to set whether the modifiers apply to the **p**\ (rimary) or **s**\ (econdary) axes [Default is **p**].
   These settings are mostly used for time axes annotations but are available for geographic axes as well. **Note**:
@@ -110,28 +112,35 @@ The following modifiers can be appended to **-B** to control the Axes settings:
 - **x**\|\ **y**\|\ **z** to set which axes the modifiers apply to [default is **xy**]. If you wish to give different
   annotation intervals or labels for the various axes then you must repeat the **B** option for each axis. For a
   3-D plot with the **-p** and **-Jz** options used, **-Bz** can be used to provide settings for the vertical axis.
-- **+e** to give skip annotations that fall exactly at the ends of the axis.  Append **l** or **u** to only
+- **+e** to give skip annotations that fall exactly at the ends of the axis. Append **l** or **u** to only
   skip the lower or upper annotation, respectively.
-- **+f** (for geographic axes only) to give fancy annotations with W\|\ E\|\ S\|\ N suffices encoding the sign.
+- **+f** (for geographic axes only) to give fancy annotations with W\|\ E\|\ S\|\ N suffixes encoding the sign.
 - **+l**\|\ **+L**\ *label* (for Cartesian plots only) to add a label to an axis. **+l** uses the default
   label orientation; **+L** forces a horizontal label for *y*-axes, which is useful for very short labels.
-- **+s**\|\ **S**\ *seclabel* (for Cartesion plots only) to specify an alternate label for the right or upper axes.
+- **+s**\|\ **S**\ *seclabel* (for Cartesian plots only) to specify an alternate label for the right or upper axes.
   **+s** uses the default label orientation; **+S** forces a horizontal label for *y*-axes, which is useful for very
   short labels.
-- **+p**\ *prefix* (for Cartesion plots only) to define a leading text prefix for the axis annotation (e.g., dollar sign for plots related to
+- **+p**\ *prefix* (for Cartesian plots only) to define a leading text prefix for the axis annotation (e.g., dollar sign for plots related to
   money). For geographic maps the addition of degree symbols, etc. is automatic and controlled by
   :term:`FORMAT_GEO_MAP`.
-- **+u**\ *unit* (for Cartesion plots only) to append specific units to the annotations. For geographic maps the
+- **+u**\ *unit* (for Cartesian plots only) to append specific units to the annotations. For geographic maps the
   addition of degree symbols, etc. is automatic and controlled by :term:`FORMAT_GEO_MAP`.
-- **+a**\ *angle* (for Cartesion plots only) to plot slanted annotations, where *angle* is measured with respect to
+- **+a**\ *angle* (for Cartesian plots only) to plot slanted annotations, where *angle* is measured with respect to
   the horizontal and must be in the -90 <= *angle* <= 90 range. **+an** can be used as a shorthand for normal
   (i.e., **+a**\ 90) [Default for y-axis] and **+ap** for parallel (i.e., **+a**\ 0) annotations [Default for
   x-axis]. These defaults can be changed via :term:`MAP_ANNOT_ORTHO`.
+- **0** This will suppress all annotations and tick marks. Useful when you want to plot a map without any
+  annotations, grid or ticks but still want to plot a frame using a line with set by :term:`MAP_FRAME_PEN`.
+- **00** Plot a frame with annotations, ticks etc use a zero-width line to plot the frame (0-width lines are lines
+  that remain very thin regardless of the zoom level).
+- **000** Plot annotations, ticks and grid lines (as chosen) but do **not** plot the frame lines. Note, this effect
+  is only visible with *png* and *pdf* formats and is not guaranteed to work when selecting only a subset of the
+  axes (e.g., **-B000ya30g30** is not working well). 
 - *intervals* to define the intervals for annotations and major tick spacing, minor tick spacing, and/or grid line
   spacing. See :ref:`Intervals Specification <option_-B_int>` for the formatting associated with this modifier.
 
 **NOTE**: To include LaTeX code as part of a label, enclose the expression with @[ markers (or alternatively <math>
-... </math>). (requires ``latex`` and ``dvips`` to be installed). See the :doc:`/cookbook/gmt-latex` chapter for more
+... </math>). (requires ``latex`` and ``dvips`` to be installed). See the :doc:`/reference/gmt-latex` chapter for more
 details.
 
 **NOTE**: If any labels, prefixes, or units contain spaces or special characters you will need to enclose them in
@@ -140,7 +149,7 @@ quotes.
 **NOTE**: Text items such as *title*, *subtitle*, *label* and *seclabel* are seen by GMT as part of a long string
 containing everything passed to **-B**. Therefore, they cannot contain substrings that look like other modifiers. If
 you need to embed such sequences (e.g., **+t**\ "Solving a+b=c") you need to replace those + symbols with their
-:doc:`octal equivalent </cookbook/octal-codes>` \\053, (e.g., **+t**\ "Solving a\\053b=c").
+:doc:`octal equivalent </reference/octal-codes>` \\053, (e.g., **+t**\ "Solving a\\053b=c").
 
 **NOTE**: For non-geographical projections: Give negative scale (in **-Jx**) or axis length (in **-JX**) to change the
 direction of increasing coordinates (i.e., to make the y-axis positive down).
@@ -153,8 +162,10 @@ direction of increasing coordinates (i.e., to make the y-axis positive down).
    [**a**\|\ **f**\|\ **g**]\ [*stride*][*phase*][*unit*].
 
 The choice of **a**\|\ **f**\|\ **g** sets the axis item of interest, which are detailed in the Table
-:ref:`interval types <tbl-inttype>`. Optionally, append *phase* to shift the annotations by that amount (positive or
-negative with the sign being required). Optionally, append *unit* to specify the units of *stride*, where *unit* is one
+:ref:`interval types <tbl-inttype>`. Optionally, append *phase* to shift that item by that amount (positive or
+negative with the sign being required); the shift only affects the item it is appended to, so
+**-Ba5f1g1+0.5** offsets the grid lines only while **-Ba5+0.5f1+0.5g1+0.5** offsets annotations, ticks and grid
+lines alike. Optionally, append *unit* to specify the units of *stride*, where *unit* is one
 of the 18 supported :ref:`unit codes <tbl-units>`. For custom annotations and intervals, *intervals* can be given as
 **c**\ *intfile*, where *intfile* contains any number of records with *coord* *type* [*label*]. See the section
 :ref:`Custom axes <custom_axes>` for more details.

@@ -1,3 +1,5 @@
+:orphan:
+
 Contributors Guide
 ==================
 
@@ -5,7 +7,7 @@ This is a community driven project and everyone is welcome to contribute. The pr
 `GMT GitHub repository <https://github.com/GenericMappingTools/gmt>`_.
 
 The goal is to maintain a diverse community that's pleasant for everyone. **Please be considerate and respectful of
-others**. Everyone must abide by our `Code of Conduct <https://github.com/GenericMappingTools/gmt/blob/master/CODE_OF_CONDUCT.md>`_
+others**. Everyone must abide by our `Code of Conduct <https://github.com/GenericMappingTools/.github/blob/main/CODE_OF_CONDUCT.md>`_
 and we encourage all to read it carefully.
 
 Ways to Contribute
@@ -37,7 +39,7 @@ Ways to Contribute to Community Building
 - Participate in discussions at the monthly GMT Community Meetings, which are announced on the
   `forum governance page <https://forum.generic-mapping-tools.org/c/governance/>`_.
 - Cite GMT when using the project.
-- Spread the word about GMT or start the project!
+- Spread the word about GMT or star the project!
 
 Providing Feedback
 ------------------
@@ -71,7 +73,7 @@ where you can submit general comments and/or questions:
 * For general comments, select *New Topic* from the
   `Lounge Page <https://forum.generic-mapping-tools.org/c/lounge/>`_.
 * To share your work, select *New Topic* from the
-  `Showcase Page <https://forum.generic-mapping-tools.org/c/Sow-your-nice-example-script/>`_.
+  `Showcase Page <https://forum.generic-mapping-tools.org/c/Show-your-nice-example-script/>`_.
 
 General Guidelines
 ------------------
@@ -83,7 +85,7 @@ Please take a look at these resources to learn about Git and pull requests (don'
 hesitate to :ref:`ask for help <devdocs/contributing:Getting Help>`):
 
 - `How to Contribute to Open Source <https://opensource.guide/how-to-contribute/>`_.
-- `Git Workflow Tutorial <http://www.asmeurer.com/git-workflow/) by Aaron Meurer>`_.
+- `Git Workflow Tutorial <http://www.asmeurer.com/git-workflow/>`_ by Aaron Meurer.
 - `How to Contribute to an Open Source Project on GitHub <https://egghead.io/courses/how-to-contribute-to-an-open-source-project-on-github>`_.
 
 Getting Help
@@ -155,6 +157,10 @@ To enable testing, you need to *uncomment* the following lines in your ``ConfigU
   set (SUPPORT_EXEC_IN_BINARY_DIR TRUE)
 
   set (DO_API_TESTS ON)
+
+Optionally, uncomment the following line to run tests on the supplement modules::
+
+  set (DO_SUPPLEMENT_TESTS ON)
 
 Optionally, uncomment the following line and change ``4`` to the number of ctest jobs to run simultaneously::
 
@@ -233,15 +239,29 @@ You may need to know some basic reST syntax before making changes. Please refer 
 Building the documentation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Usually you don't need to build the documentation locally for small changes. To build the GMT documentation you need
-to install the `Sphinx <http://www.sphinx-doc.org/>`_ documentation builder. After configuring and
-`building GMT <https://github.com/GenericMappingTools/gmt/tree/master/BUILDING.md>`_, you can build GMT documentation using
-the following commands within the build directory::
+Usually you don't need to build the documentation locally for small changes. To build the GMT documentation you
+need to `build GMT from source <https://github.com/GenericMappingTools/gmt/tree/master/BUILDING.md>`_. Be sure
+to also satisfy the
+`development dependencies <https://github.com/GenericMappingTools/gmt/tree/master/BUILDING.md#development-dependencies>`_
+before proceeding. Have a look at the options in ``cmake/ConfigUserAdvanced.cmake`` if you want to change the
+target directory for the documentation you are about to build.
 
+To build the documentation, you also need to install some Python packages (the Sphinx theme and extensions). These packages are listed in ``doc/rst/requirements.txt`` and can be installed via::
+
+    $ python -m pip install -r doc/rst/requirements.txt
+
+After `configuring and building GMT from source <https://github.com/GenericMappingTools/gmt/tree/master/BUILDING.md>`_,
+you can then build the GMT documentation using the following commands within the ``build`` directory::
+
+  dvc pull
   cmake --build . --target docs_depends     # Generate images included in the documentation
   cmake --build . --target optimize_images  # Optimize PNG images for documentation [optional]
-  cmake --build . --target docs_man         # UNIX manual pages
-  cmake --build . --target docs_html        # HTML manual, tutorial, cookbook, and API reference
+  cmake --build . --target docs_man         # Build UNIX manual pages
+  cmake --build . --target docs_html        # Build HTML manual, tutorial, cookbook, and API reference
+
+To install the UNIX manpages and html documentation into the specified location (along with the gmt executable, library, development headers and built-in data), use::
+
+  cmake --build . --target install
 
 .. note::
   - Refer to the file ``admin/bashrc_for_gmt`` for useful aliases for building the documentation.
@@ -275,7 +295,7 @@ The animations are built from the scripts in ``doc/examples/anim*/``. To add a n
 
     .. youtube:: Pvvc4vb8G4Y
       :width: 100%
-  
+
       :doc:`/animations/anim??`
 
 - :ref:`Submit a pull request <devdocs/contributing:Pull Request Workflow>` with your new animation. Please be sure
@@ -303,22 +323,66 @@ Here are some specific guidelines:
 - Use tabs, rather than spaces, for indentation.
 - Try to split lines at ~120 characters.
 
-
 Testing GMT
 ~~~~~~~~~~~
 
 GMT ships with more than 1000 tests to make sure that any changes won't break its functionality. In addition to the
-tests located in the ``/test`` directory, GMT tests all the plots included in its documentation. The
-documentation tests are located in the ``/doc/scripts`` directory. The majority of GMT tests are plot-based,
-with each test requiring a bash script for generating the plot and a reference PostScript file. These tests pass if the
-difference between a new plot generated using the test script and the reference PostScript file is less than a defined
-threshold. Other tests compute grids, tables, or other output, with the test passing if a suitable comparison is made
-against a reference case.
+tests located in the ``test/`` directory, GMT tests all the plots included in its documentation. The
+documentation tests are located in the ``doc/scripts/`` and ``doc/examples/`` directories. The majority of GMT tests
+are plot-based, with each test requiring a bash script for generating the plot and a reference PostScript file. These
+tests pass if the difference between a new plot generated using the test script and the reference PostScript file is
+less than a defined threshold. Other tests compute grids, tables, or other output, with the test passing if a suitable
+comparison is made against a reference case.
 
-Tests that are known to fail are excluded by adding ``# GMT_KNOWN_FAILURE`` anywhere in the test script.
+Tests that are known to fail are excluded by adding ``# GMT_KNOWN_FAILURE`` anywhere in the test script. Tests that
+require a larger tolerance than the default RMS threshold are managed using ``GRAPHICSMAGICK_RMS = <RMS>`` in the
+test script. These tests are tracked in `GitHub issue #2458 <https://github.com/GenericMappingTools/gmt/issues/2458>`_.
+
+
+Managing Test Images Using Data Version Control (dvc)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+As the baseline images are large blob files that can change often, it is not ideal to store them in ``git``. Instead,
+we use `data version control (dvc) <https://dvc.org/>`_ to track the test images, which is like ``git`` but for data.
+``dvc`` stores the hash (md5sum) of a file or an md5sum that describes the contents of a directory. For each test
+``test/<module>/*.sh`` that generates a .PS file, there is a baseline image file in ``test/baseline/<module>/``
+that is compared to the test result using `GraphicsMagick <http://www.graphicsmagick.org/>`_. Each of the
+directories ``test/baseline/<module>`` are tracked by ``dvc`` using the file ``test/baseline/<module>.dvc``. This file
+contains the hash of a JSON .dir file stored in the .dvc cache. The .dir file contains information about each tracked
+file in the directory, which is used to push/pull the files to/from remote storage. The ``test/baseline/<module>.dvc``
+files are stored as usual on GitHub, while the .PS files are stored separately on the ``dvc`` remote at
+https://dagshub.com/GenericMappingTools/gmt.
+
+Setting up your local environment for dvc
+*****************************************
+
+#. `Install dvc <https://dvc.org/doc/install>`_
+#. If you will need to push baseline images to the remote, ask a GMT maintainer to add you as a collaborator on
+   `DAGsHub <https://dagshub.com/GenericMappingTools/gmt>`_.
+#. If you will need to push baseline imaged to the remote, set up
+   `authentication for the DVC remote <https://dagshub.com/docs/feature_guide/dagshub_storage/#pushing-files-or-using-a-private-repo>`_.
+
+Pulling files from the remote for testing
+*****************************************
+
+To pull or sync files from the ``dvc`` remote to your local repository, the commands are similar to ``git``:
+
+::
+
+    dvc status  # should report any files 'not_in_cache'
+    dvc pull    # pull down files from DVC remote cache (fetch + checkout)
+
+
+Once the sync is complete, you should notice that there are images stored in the ``test/baseline/<module>``
+directories (e.g., ``test/baseline/api/api_matrix_as_grid.ps``). These images are technically reflinks/symlinks/copies
+of the files under the ``.dvc/cache`` directory. You can now run the test suite as usual.
 
 Running tests
 ^^^^^^^^^^^^^
+
+First, pull any baseline images stored in the DAGsHub repository using dvc::
+
+  dvc pull
 
 After configuring CMake and building GMT, you can run all the tests by running this command in the build directory::
 
@@ -350,39 +414,53 @@ instructions provided in the :ref:`Running tests <devdocs/contributing:Running t
 expect all tests to pass unless something new is broken.
 
 Information about failing tests is produced in ``test/fail_count.txt`` inside the build directory. For plot-based tests,
-the subdirectories ``test/`` and ``doc/scripts/`` inside the build directory contain folders for each failing test. For
-plot-based tests, the directory associated with each failing tests contains a ``gmtest.sh`` script, a ``gmt.conf`` file,
-an alias to the test script, a PostScript file and PDF document generated by the test script, and a PNG image that shows
-differences between the reference plot and new plot in magenta. In addition to these files, running the failing tests
-with verbose output can be helpful for evaluating failures::
+the subdirectories ``test/``, ``doc/scripts/``, and ``doc/examples/`` inside the build directory contain folders for
+each failing test. For plot-based tests, the directory associated with each failing tests contains a ``gmtest.sh``
+script, a ``gmt.conf`` file, an alias to the test script, a PostScript file and PDF document generated by the test
+script, and a PNG image that shows differences between the reference plot and new plot in magenta. In addition to these
+files, running the failing tests with verbose output can be helpful for evaluating failures::
 
   ctest --rerun-failed --verbose
 
 Updating reference plots for tests
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Pull requests should avoid needing to change PostScript files in the ``/test`` and ``doc/scripts/``
-directories. However, if this is unavoidable, new PostScript reference files can be generated by running
-``ctest -R <test-script-name>`` in the build directory after following the
-`building guide <https://github.com/GenericMappingTools/gmt/tree/master/BUILDING.md>`_, the
-:ref:`setting up your environment <devdocs/contributing:setting up your environment>` instructions, and the
-:ref:`running tests <devdocs/contributing:Running tests>` instructions. The new PostScript file can then be copied from
-the appropriate subdirectory within ``build/test/`` or ``build/doc/scripts/`` to ``/test`` or ``/doc/scripts``
-respectively.
+Pull requests should avoid needing to change PostScript files in the ``test/baseline/``, ``doc/scripts/images/``, and
+``doc/examples/images/`` directories. However, if this is unavoidable, new PostScript reference files can be generated
+using the following steps:
 
+- Run ``dvc pull`` to ensure that you have the latest versions of the images.
+- Run ``ctest -R <test-script-name>`` in the build directory after following the
+  `building guide <https://github.com/GenericMappingTools/gmt/tree/master/BUILDING.md>`_, the
+  :ref:`setting up your environment <devdocs/contributing:setting up your environment>` instructions, and the
+  :ref:`running tests <devdocs/contributing:Running tests>` instructions.
+- Copy the modified PostScript file from the appropriate subdirectory within ``build/test/``, ``build/doc/scripts/``, or
+  ``build/doc/examples/`` to ``test/baseline/<module>``, ``doc/scripts/images/``, or ``doc/examples/images/`` respectively.
+- Run the tests to ensure that the failing tests now pass.
+- Run ``dvc diff`` to check that modified files are in the correct directory.
+- Add the modified images to dvc using ``dvc add test/baseline/<module>/<newplot.ps>``, ``dvc add doc/scripts/images/<newplot.ps>``,
+  or ``dvc add doc/examples/images/<newplot.ps>``
+  depending on the type of test modified. Run one dvc add command per updated PostScript plot.
+- Check that the .dvc file was updated by running ``git status``.
+- Stage the modified .dvc files in git using ``git add test/baseline/<module>/<newplot.ps>.dvc``, ``git add doc/scripts/images/<newplot.ps>.dvc``,
+  or ``git add doc/examples/images/<newplot.ps>.dvc``, again per updated file.
+- Commit the changes using ``git commit``.
+- Open a pull request on GitHub with your changes.
+- Push the new images to the DAGsHub repository using ``dvc push``. Optionally, use ``dvc status --remote origin`` first
+  to query the diff between your local environment and the remote repository.
 
 Adding new tests
 ^^^^^^^^^^^^^^^^
 
 If you are fixing a bug or adding a new feature, you should add a test with your pull request. Most of the tests are
-image based and compare a result against a reference PostScript file using `GraphicsMagick <www.graphicsmagick.org>`_.
+image based and compare a result against a reference PostScript file using `GraphicsMagick <http://www.graphicsmagick.org/>`_.
 
 To add a PostScript based test (e.g., `box.sh <https://github.com/GenericMappingTools/gmt/blob/master/test/modern/box.sh>`_):
 
 - Create a new shell script in the subdirectory under ``test/`` that corresponds to the module you are testing. The
   name of the shell script should be descriptive and unique.
 - Include ``#!/usr/bin/env bash`` and a short description of the test at the top of the script.
-- Add the content of the script that will create a PostScript file. Some general guidelines:
+- Add the content of the script that will create a PostScript file (here just called <newplot.ps>). Some general guidelines:
 
   - Use as small a dataset as possible. See the
     `GMT server cache <https://github.com/GenericMappingTools/gmtserver-admin/tree/master/cache>`_ for some example
@@ -392,9 +470,21 @@ To add a PostScript based test (e.g., `box.sh <https://github.com/GenericMapping
   - Minimize the size of the resultant PostScript file as much as possible.
 - Run the tests using the instructions in the :ref:`running tests <devdocs/contributing:Running tests>` section.
 - Check that the new PostScript file in ``build/test/<module>`` or ``build/doc/scripts/`` is as-expected.
-- Copy the new PostScript file from the appropriate subdirectory within ``build/test/`` or ``build/doc/scripts/`` to
-  ``test/<module>`` or ``doc/scripts`` respectively.
-- Check that your new test working by rerunning the failing tests.
+- Copy the new PostScript file from the appropriate subdirectory within ``build/test/``, ``build/doc/scripts/``, or
+  ``build/doc/examples/`` to ``test/baseline/<module>``, ``doc/scripts/images/``, or ``doc/examples/images/`` respectively.
+- Run the tests to ensure that the new test passes.
+- Run ``dvc diff`` to check that the new file is in the correct directory.
+- For the first test of a module, you add the directory via ``dvc add test/baseline/<module>``, ``dvc add doc/scripts/images``,
+  or ``dvc add doc/scripts/examples``. For later addition you do so per file, e.g. ``dvc add test/baseline/<module>/<newplot.ps>``,
+  ``dvc add doc/scripts/images/<newplot.ps>``, or ``dvc add doc/scripts/examples/<newplot.ps>``
+  depending on the type of test modified.
+- Check that the .dvc file was updated by running ``git status``.
+- Add the modified .dvc file to git using ``git add test/baseline/<module>/<newplot.ps>.dvc``, ``git add doc/scripts/images/<newplot.ps>.dvc``, or
+  ``git add doc/examples/images/<newplot.ps>.dvc``.
+- Commit the changes using ``git commit``.
+- Open a pull request on GitHub with your changes.
+- Push the new images to the DAGsHub repository using ``dvc push``. Optionally, use ``dvc status --remote origin`` first
+  to query the diff between your local environment and the remote repository.
 
 To add a non-PostScript based test (e.g., `gmean.sh <https://github.com/GenericMappingTools/gmt/blob/master/test/blockmean/gmean.sh>`_):
 

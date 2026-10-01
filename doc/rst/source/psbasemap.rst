@@ -41,8 +41,8 @@ Synopsis
 
 .. _-D:
 
-**-D**\ *xmin/xmax/ymin/ymax*\ [**+r**][**+s**\ *file*][**+t**][**+u**\ *unit*]\  \| **-D**\ [**g**\|\ **j**\|\ **J**\|\ **n**\|\ **x**]\ *refpoint*\ **+w**\ *width*\ [/*height*][**+j**\ *justify*][**+o**\ *dx*\ [/*dy*]][**+s**\ *file*][**+t**]
-    Draw a simple map inset box on the map.  Requires **-F**.  Specify the box in one of three ways:
+**-D**\ *xmin/xmax/ymin/ymax*\ [**+r**][**+s**\ *file*][**+t**][**+u**\ *unit*]\  \| **-D**\ [**g**\|\ **j**\|\ **J**\|\ **n**\|\ **x**]\ [*refpoint*]\ **+w**\ *width*\ [/*height*][**+j**\ *justify*][**+o**\ *dx*\ [/*dy*]][**+s**\ *file*][**+t**]
+    Draw a simple map inset box on the map.  Requires |-F|.  Specify the box in one of three ways:
     (a) Give *west/east/south/north* of geographic rectangle bounded by parallels
     and meridians; append **r** if the coordinates instead are the lower left and
     upper right corners of the desired rectangle. (b) Give *xmin/xmax/ymin/ymax*
@@ -51,7 +51,8 @@ Synopsis
     (1) Use **-Dg** for map (user) coordinates, (2) use **-Dj** or **-DJ** for setting *refpoint* via
     a 2-char justification code that refers to the (invisible) map domain rectangle,
     (3) use **-Dn** for normalized (0-1) coordinates, or (4) use **-Dx** for plot coordinates
-    (inches, cm, etc.).
+    (inches, cm, etc.). If *refpoint* is omitted, the map inset is placed by default in the
+    upper-right corner of the map (using **jTR**).
     Append **+w**\ *width*\ [/*height*] of bounding rectangle or box in plot coordinates (inches, cm, etc.).
     By default, the anchor point on the scale is assumed to be the bottom left corner (BL), but this
     can be changed by appending **+j** followed by a 2-char justification code *justify* (see :doc:`pstext`).
@@ -63,7 +64,7 @@ Synopsis
     its dimensions in the current map unit, use **+s**\ *file* to write this information
     to *file*.  Alternatively, you may append **+t** to translate the plot origin to
     the lower left corner of the map inset.
-    Specify inset box attributes via the **-F** option [outline only].
+    Specify inset box attributes via the |-F| option [outline only].
 
 Examples
 --------
@@ -160,7 +161,7 @@ To create a page-size global oblique Mercator basemap for a pole at
 
    ::
 
-    gmt psbasemap -R0/360/-70/70 -Joc0/0/90/30/0.064cd -B30g30 -B+t"Oblique Mercator" -P > oblmerc.ps
+    gmt psbasemap -R0/360/-70/70 -Joc0/0/90/30/0.064c -B30g30 -B+t"Oblique Mercator" -P > oblmerc.ps
 
 Transverse Mercator [conformal]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -189,7 +190,7 @@ the central meridian. A UTM basemap for Indo-China can be plotted as
 
    ::
 
-    gmt psbasemap -R95/5/108/20r -Ju46/1:10000000 -Bafg -B+tUTM -P > utm.ps
+    gmt psbasemap -R95/5/108/20+r -Ju46/1:10000000 -Bafg -B+tUTM -P > utm.ps
 
 Cylindrical Equal-Area
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -315,14 +316,14 @@ degrees annotation/tick interval and 1 degree gridlines, run
 
 To make a 12-cm-wide stereographic basemap for Australia from an
 arbitrary view point (not the poles), and use a rectangular boundary, we
-must give the pole for the new projection and use the **-R** option to
+must give the pole for the new projection and use the |-R| option to
 indicate the lower left and upper right corners (in lon/lat) that will
 define our rectangle. We choose a pole at 130/-30 and use 100/-45 and
 160/-5 as our corners. The command becomes
 
    ::
 
-    gmt psbasemap -R100/-45/160/-5r -JS130/-30/12c -Bafg -B+t"General Stereographic View" -P > stereo2.ps
+    gmt psbasemap -R100/-45/160/-5+r -JS130/-30/12c -Bafg -B+t"General Stereographic View" -P > stereo2.ps
 
 Miscellaneous Map Projections
 -----------------------------

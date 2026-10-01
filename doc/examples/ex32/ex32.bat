@@ -10,8 +10,7 @@ gmt begin ex32
 	REM Here we get and convert the flag of Europe directly from the web through grdconvert using
 	REM GDAL support. We take into account the dimension of the flag (1000x667 pixels)
 	REM for a ratio of 3x2.
-	REM Because GDAL support will not be standard for most users, we have stored
-	REM the result, @euflag.nc in this directory.
+	REM To simplify the example, we have stored the result, @euflag.nc in this directory.
 
 	set Rflag=-R3/9/50/54
 	REM gmt grdconvert \
@@ -30,8 +29,9 @@ gmt begin ex32
 	gmt makecpt -C0/51/153,255/204/0 -T0,127,255 -N
 
 	REM The next step is the plotting of the image.
-	REM We use gmt grdview to plot the topography, euflag.nc to give the color, and illum.nc to give
-	REM the shading.
+	REM We use gmt grdview to plot the topography, euflag.nc to give the color, and an illumination
+	REM from the azimuthal directions 0° (north) and 270° (west) with a normalization via a cumulative
+	REM Laplace distribution for the shading.
 	set Rplot=%Rflag%/-10/790
 	gmt grdview topo_32.nc -JM13c %Rplot% -C -G@euflag.nc -I+a0/270+ne0.6 -Qc -JZ1c -p157.5/30
 

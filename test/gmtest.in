@@ -17,6 +17,14 @@ local_script=$(basename "${script_name}")
 script="@GMT_SOURCE_DIR@/${script_name}"
 src="@GMT_SOURCE_DIR@/${script_dir}"
 
+if [[ $src == *"doc/examples"* ]]; then
+  baseline="@GMT_SOURCE_DIR@/doc/examples/images"
+elif [[ $src == *"doc/scripts"* ]]; then
+  baseline="@GMT_SOURCE_DIR@/doc/scripts/images"
+else
+  baseline="@GMT_SOURCE_DIR@/test/baseline/${script_dir#test}"
+fi
+
 # Skip tests with label GMT_DISABLE_TEST
 skip_this_test=$(grep GMT_DISABLE_TEST "$script" -c)
 if [ $skip_this_test -gt 0 ]; then	# Do not run this script, probably PS is too alrge
@@ -24,8 +32,8 @@ if [ $skip_this_test -gt 0 ]; then	# Do not run this script, probably PS is too 
 		exit 0
 fi
 
-# Is it a modern mode or one-liner script
-modern=$(grep "gmt begin\| -ps " "$script" -c)
+# Is it a modern mode ('gmt begin figname') or one-liner script ('-ps').
+modern=$(grep "gmt begin .*\| -ps " "$script" -c)
 
 # Is it a script that is known to fail?
 if [ "@GMT_ENABLE_KNOWN2FAIL@" = "ON" ]; then
@@ -45,8 +53,8 @@ fi
 # Any script override of GRAPHICSMAGICK_RMS?  Must be a comment line of the format
 # GRAPHICSMAGICK_RMS = <custom-limit>
 GRAPHICSMAGICK_RMS=$(grep "GRAPHICSMAGICK_RMS" "$script" | awk '{print $4}')
-if ! [ -x "${script}" ]; then
-  echo "error: cannot execute script ${script}." >&2
+if ! [ -r "${script}" ]; then
+  echo "error: cannot read script ${script}." >&2
   exit 1
 fi
 
@@ -100,28 +108,32 @@ function psldemo()
 for apiprog in \
 	testapi_columns \
     testapi_cube \
+    testapi_gmtgrid \
     testapi_makecpt \
     testapi_matrix \
     testapi_matrix_pad \
     testapi_matrix_plot \
     testapi_mixmatrix \
+    testapi_modern \
     testapi_userdataset \
     testapi_usergrid \
     testapi_uservectors \
     testapi_vector \
-    testapiconv \
+    testapi_conv \
     testgrdio \
     testapi_imageshading \
     testapi_matrix_as_grid \
     testapi_vector_strings \
     testapi_vector_plot \
+    testapi_vector_times \
     testapi_vector_io \
     testapi_matrix_io \
     testapi_matrix_360 \
     testapi_matrix_360_ref \
     testapi_grid2matrix \
     testapi_putvector \
-    testapi_spatial
+    testapi_spatial \
+    testapi_text_legend
 do
     eval "${apiprog}() { valgrind_wrapper \"@GMT_BINARY_DIR@/src/${apiprog}\" \"\$@\"; }"
 done
@@ -156,7 +168,7 @@ for ps in *.ps ; do
       echo "$now ${script_dir}/${ps}: RMS Error = N/A Limit = $GRAPHICSMAGICK_RMS Failure = known" >> "@CMAKE_CURRENT_BINARY_DIR@/fail_count.txt"
   else
     # syntax: gm compare [ options ... ] reference-image [ options ... ] compare-image [ options ... ]
-    rms=$("${GRAPHICSMAGICK}" compare -density 200 -maximum-error $GRAPHICSMAGICK_RMS -highlight-color magenta -highlight-style assign -metric rmse -file "${ps%.ps}.png" "$ps" "$src/${psref:-$ps}") || pscmpfailed="yes"
+    rms=$("${GRAPHICSMAGICK}" compare -density 200 -maximum-error $GRAPHICSMAGICK_RMS -highlight-color magenta -highlight-style assign -metric rmse -file "${ps%.ps}_diff.png" "$ps" "$baseline/${psref:-$ps}") || pscmpfailed="yes"
     rms=$(perl -ne 'print $1 if /Total: ([0-9.]+)/' <<< "$rms")
     if [ -z "$rms" ]; then
       rms="NA"
@@ -275,12 +287,14 @@ export HAVE_GLIB_GTHREAD="@HAVE_GLIB_GTHREAD@"
 export GS_FONTPATH="@CMAKE_CURRENT_SOURCE_DIR@/ex31/fonts"
 # Disable gmt end show from displaying plots
 export GMT_END_SHOW=off
+# Set the GMT data server if not already set in the environment
+[[ -z "${GMT_DATA_SERVER}" ]] && export GMT_DATA_SERVER=@GMT_DATA_SERVER@
 # Start with proper GMT defaults
 # Use different settings for three groups of tests
 if [[ $script_name == doc/examples/* ]]; then
 	gmt set -Ds GMT_GRAPHICS_FORMAT ps
 elif [[ $script_name == doc/scripts/* ]]; then
-  gmt set -Du PS_CHAR_ENCODING ISOLatin1+ GMT_GRAPHICS_FORMAT ps
+	gmt set -Du PS_CHAR_ENCODING ISOLatin1+ GMT_GRAPHICS_FORMAT ps
 else
 	gmt set -Du GMT_GRAPHICS_FORMAT ps
 fi

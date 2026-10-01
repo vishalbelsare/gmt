@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -21,21 +21,27 @@
  * Date:	1-JAN-2010
  * Version:	6 API
  *
- * Brief synopsis: Reads a grid file and writes a portion within it
- * to a new file.
+ * Brief synopsis: Reads a grid file and writes a portion within it to a new file.
  *
  * Note on KEYS: FD(= means -F takes an optional input Dataset as argument which may be followed by optional modifiers.
  */
 
 #include "gmt_dev.h"
+#include "longopt/grdcut_inc.h"
 
 #define THIS_MODULE_CLASSIC_NAME	"grdcut"
 #define THIS_MODULE_MODERN_NAME	"grdcut"
 #define THIS_MODULE_LIB		"core"
-#define THIS_MODULE_PURPOSE	"Extract subregion from a grid or image"
-#define THIS_MODULE_KEYS	"<G{,FD(=,>DD,G?}"
+#define THIS_MODULE_PURPOSE	"Extract subregion from a grid or image or a slice from a cube"
+#define THIS_MODULE_KEYS	"<?{,FD(=,>DD,G?}"
 #define THIS_MODULE_NEEDS	""
 #define THIS_MODULE_OPTIONS "-JRVf"
+
+#ifdef WIN32	/* Special for Windows */
+	static char quote = '\"';
+#else
+	static char quote = '\'';
+#endif
 
 /* Control structure for grdcut */
 
@@ -50,6 +56,11 @@ struct GRDCUT_CTRL {
 		bool text;
 		bool quit;
 	} D;
+	struct GRDCUT_E {	/* -Dx|y<value> */
+		bool active;
+		unsigned dim;	/* GMT_X or GMT_Y */
+		double coord;	/* THe x- or y-value we wish to cut a cube vertically */
+	} E;
 	struct GRDCUT_F {	/* -Fpolfile[+c][+i] */
 		bool active;
 		bool crop;
@@ -73,7 +84,7 @@ struct GRDCUT_CTRL {
 	} S;
 	struct GRDCUT_Z {	/* -Z[min/max][+n|N|r] */
 		bool active;
-		unsigned int mode;	/* 0-2, see below */
+		unsigned int mode;	/* 0-2, see below for values */
 		double min, max;
 	} Z;
 };
@@ -108,7 +119,7 @@ static void Free_Ctrl (struct GMT_CTRL *GMT, struct GRDCUT_CTRL *C) {	/* Dealloc
 static int usage (struct GMTAPI_CTRL *API, int level) {
 	const char *name = gmt_show_name_and_purpose (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_PURPOSE);
 	if (level == GMT_MODULE_PURPOSE) return (GMT_NOERROR);
-	GMT_Usage (API, 0, "usage: %s %s -G%s %s [-D[+t]] [-F<polygontable>[+c][+i]] [%s] [-N[<nodata>]] [-S<lon>/<lat>/<radius>[+n]] [%s] [-Z[<min>/<max>][+n|N|r]] [%s] [%s]\n",
+	GMT_Usage (API, 0, "usage: %s %s -G%s %s [-D[+t]] [-Ex|y<coord>] [-F<polygontable>[+c][+i]] [%s] [-N[<nodata>]] [-S<lon>/<lat>/<radius>[+n]] [%s] [-Z[<min>/<max>][+n|N|r]] [%s] [%s]\n",
 		name, GMT_INGRID, GMT_OUTGRID, GMT_Rgeo_OPT, GMT_J_OPT, GMT_V_OPT, GMT_f_OPT, GMT_PAR_OPT);
 
 	if (level == GMT_SYNOPSIS) return (GMT_MODULE_SYNOPSIS);
@@ -124,6 +135,8 @@ static int usage (struct GMTAPI_CTRL *API, int level) {
 	GMT_Usage (API, 1, "\n-D[+t]");
 	GMT_Usage (API, -2, "Dry-run mode. No grid is written but its domain and increment will be "
 		"written to standard output in w e s n dx dy numerical format.  Append +t to instead receive text strings -Rw/e/s/n -Idx/dy.");
+	GMT_Usage (API, 1, "\n-Ex|y<coord>");
+	GMT_Usage (API, -2, "Cut a vertical grid from an input cube along x = <coord> or y == <coord>.\n");
 	GMT_Usage (API, 1, "\n-F<polygontable>[+c][+i]");
 	GMT_Usage (API, -2, "Specify a multi-segment closed polygon table that describes the grid subset "
 		"to be extracted (nodes between grid boundary and polygons will be set to NaN).");
@@ -170,26 +183,40 @@ static int parse (struct GMT_CTRL *GMT, struct GRDCUT_CTRL *Ctrl, struct GMT_OPT
 		switch (opt->option) {
 
 			case '<':	/* Input files */
-				if (n_files++ > 0) {n_errors++; continue; }
-				Ctrl->In.active = true;
-				if (opt->arg[0]) Ctrl->In.file = strdup (opt->arg);
+				n_errors += gmt_M_repeated_module_option (API, Ctrl->In.active);
+				n_errors += gmt_get_required_string (GMT, opt->arg, opt->option, 0, &(Ctrl->In.file));
 				if (do_file_check && GMT_Get_FilePath (API, GMT_IS_GRID, GMT_IN, GMT_FILE_REMOTE, &(Ctrl->In.file))) n_errors++;
+				n_files++;
 			break;
 
 			/* Processes program-specific parameters */
 
 			case 'D':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->D.active);
-				Ctrl->D.active = true;
 				if (strstr (opt->arg, "+t")) Ctrl->D.text = true;
 				if (opt->arg[0] && strstr (opt->arg, "done-in-gmt_init_module")) {
 					Ctrl->D.quit = true;	/* Reporting has already happened */
 					gmt_M_str_free (opt->arg);	/* Free internal marker */
 				}
 				break;
+			case 'E':
+				n_errors += gmt_M_repeated_module_option (API, Ctrl->E.active);
+				switch (opt->arg[0]) {
+					case 'x':	Ctrl->E.dim = GMT_X;	break;
+					case 'y':	Ctrl->E.dim = GMT_Y;	break;
+					default:
+						GMT_Report (API, GMT_MSG_ERROR, "Option -E: Must select directive x or y\n");
+						n_errors++;
+						break;
+				}
+				if (opt->arg[1]) {
+					n_errors += gmt_verify_expectations (GMT, gmt_M_type (GMT, GMT_IN, Ctrl->E.dim),
+					                                     gmt_scanf_arg (GMT, &opt->arg[1], gmt_M_type (GMT, GMT_IN, Ctrl->E.dim), false,
+					                                     &Ctrl->E.coord), &opt->arg[1]);
+				}
+				break;
 			case 'F':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->F.active);
-				Ctrl->F.active = true;
 				if (opt->arg[0]) {
 					if ((c = gmt_first_modifier (GMT, opt->arg, "ci"))) {	/* Process any modifiers */
 						unsigned int pos = 0;	/* Reset to start of new word */
@@ -214,18 +241,15 @@ static int parse (struct GMT_CTRL *GMT, struct GRDCUT_CTRL *Ctrl, struct GMT_OPT
 				break;
 			case 'G':	/* Output file */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->G.active);
-				Ctrl->G.active = true;
-				if (opt->arg[0]) Ctrl->G.file = strdup (opt->arg);
-				if (GMT_Get_FilePath (API, GMT_IS_GRID, GMT_OUT, GMT_FILE_LOCAL, &(Ctrl->G.file))) n_errors++;
+				n_errors += gmt_get_required_file (GMT, opt->arg, opt->option, 0, GMT_IS_GRID, GMT_OUT, GMT_FILE_LOCAL, &(Ctrl->G.file));
 				break;
 			case 'N':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->N.active);
-				Ctrl->N.active = true;
 				if (opt->arg[0])
 					Ctrl->N.value = (opt->arg[0] == 'N' || opt->arg[0] == 'n') ? GMT->session.f_NaN : (gmt_grdfloat)atof (opt->arg);
 				break;
  			case 'S':	/* Origin and radius */
-				Ctrl->S.active = true;
+				n_errors += gmt_M_repeated_module_option (API, Ctrl->S.active);
 				k = 0;
 				if ((c = strstr (opt->arg, "+n"))) {
 					Ctrl->S.set_nan = true;
@@ -244,7 +268,6 @@ static int parse (struct GMT_CTRL *GMT, struct GRDCUT_CTRL *Ctrl, struct GMT_OPT
 				break;
 			case 'Z':	/* Detect region via z-range -Z[<min>/<max>][+n|N|r]*/
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->Z.active);
-				Ctrl->Z.active = true;
 				k = 0;
 				if ((c = strstr (opt->arg, "+n")))
 					Ctrl->Z.mode = NAN_IS_SKIPPED;
@@ -274,37 +297,44 @@ static int parse (struct GMT_CTRL *GMT, struct GRDCUT_CTRL *Ctrl, struct GMT_OPT
 						n_errors += gmt_verify_expectations (GMT, gmt_M_type (GMT, GMT_IN, GMT_Z), gmt_scanf_arg (GMT, zb, gmt_M_type (GMT, GMT_IN, GMT_Z), false, &Ctrl->Z.max), zb);
 				}
 				if (c) c[0] = '+';	/* Restore modifier */
+				if (Ctrl->Z.min >= Ctrl->Z.max) {
+					GMT_Report (API, GMT_MSG_ERROR, "Option -Z: zmax not strictly greater than zmin\n");
+					n_errors++;
+				}
 				break;
 
 			default:	/* Report bad options */
-				n_errors += gmt_default_error (GMT, opt->option);
+				n_errors += gmt_default_option_error (GMT, opt);
 				break;
 		}
 	}
 
 	n_errors += gmt_M_check_condition (GMT, Ctrl->D.active && Ctrl->G.file, "Option -D: Cannot specify -G since no grid will be returned\n");
-	//n_errors += gmt_M_check_condition (GMT, Ctrl->D.active && !GMT->common.J.active, "Option -D: Requires -R and -J\n");
 	n_errors += gmt_M_check_condition (GMT, GMT->common.R.active[RSET] && Ctrl->F.crop, "Option -F: Modifier +c cannot be used with -R\n");
-	F_or_R_or_J = GMT->common.R.active[RSET] | Ctrl->F.active | GMT->common.J.active;
-	n_errors += gmt_M_check_condition (GMT, (F_or_R_or_J + Ctrl->S.active + Ctrl->Z.active) != 1,
+	F_or_R_or_J = GMT->common.R.active[RSET] || Ctrl->F.active || GMT->common.J.active;
+	n_errors += gmt_M_check_condition (GMT, (F_or_R_or_J + Ctrl->S.active + Ctrl->E.active+ Ctrl->Z.active) != 1,
 	                                   "Must specify only one of the -F, -R, -S or the -Z options\n");
 	n_errors += gmt_M_check_condition (GMT, !Ctrl->G.file && !Ctrl->D.active, "Option -G: Must specify output grid file\n");
-	n_errors += gmt_M_check_condition (GMT, n_files != 1, "Must specify one input grid file\n");
-	if (n_errors == 0) {
-		int ftype = gmt_raster_type (GMT, Ctrl->In.file, true);
-		if (ftype == GMT_IS_IMAGE)	/* Must read file as an image */
-			Ctrl->In.type = GMT_IS_IMAGE;
-		else if (ftype == GMT_IS_GRID) {	/* Check extension in case of special case */
-			if (strstr (Ctrl->G.file, ".tif"))	/* Want to write a single band (normally written as a grid) to geotiff instead */
+	n_errors += gmt_M_check_condition (GMT, !Ctrl->In.active, "Must specify one input grid file\n");
+	n_errors += gmt_M_check_condition (GMT, Ctrl->E.active && !Ctrl->G.active, "Option -E: Must specify output grid file\n");
+	n_errors += gmt_M_check_condition (GMT, Ctrl->E.active && n_files != 1, "Option -E: Must supply an input cube\n");
+	n_errors += gmt_M_check_condition (GMT, Ctrl->E.active && !gmt_nc_is_cube (API, Ctrl->In.file), "Option -E: Must supply an input cube, not grid\n");
+	n_errors += gmt_M_check_condition (GMT, Ctrl->E.active && (F_or_R_or_J + Ctrl->N.active + Ctrl->S.active + Ctrl->Z.active), "Option -E: Can only be used with -G\n");
+
+	if (n_errors == 0 && !Ctrl->E.active) {
+		if (!Ctrl->D.quit) {
+			int ftype = gmt_raster_type(GMT, Ctrl->In.file, true);
+			if (ftype == GMT_IS_IMAGE)	/* Must read file as an image */
 				Ctrl->In.type = GMT_IS_IMAGE;
-			else
+			else if (ftype == GMT_IS_GRID)		/* Check extension in case of special case */
 				Ctrl->In.type = GMT_IS_GRID;
-		}
-		else	/* Just have to assume it is a grid */
-			Ctrl->In.type = GMT_IS_GRID;
-		if (Ctrl->In.type == GMT_IS_IMAGE) {
-			n_errors += gmt_M_check_condition (GMT, Ctrl->Z.active, "Option -N: Cannot be used with an image\n");
-			n_errors += gmt_M_check_condition (GMT, Ctrl->Z.active, "Option -Z: Cannot be used with an image\n");
+			else	/* Just have to assume it is a grid */
+				Ctrl->In.type = GMT_IS_GRID;
+
+			if (Ctrl->In.type == GMT_IS_IMAGE) {
+				n_errors += gmt_M_check_condition (GMT, Ctrl->Z.active, "Option -N: Cannot be used with an image\n");
+				n_errors += gmt_M_check_condition (GMT, Ctrl->Z.active, "Option -Z: Cannot be used with an image\n");
+			}
 		}
 	}
 
@@ -414,7 +444,6 @@ GMT_LOCAL unsigned int grdcut_node_is_outside (struct GMT_CTRL *GMT, struct GMT_
 	return ((inside) ? 0 : 1);	/* 1 if outside */
 }
 
-
 #define bailout(code) {gmt_M_free_options (mode); return (code);}
 #define Return(code) {Free_Ctrl (GMT, Ctrl); gmt_end_module (GMT, GMT_cpy); bailout (code);}
 
@@ -449,7 +478,7 @@ EXTERN_MSC int GMT_grdcut (void *V_API, int mode, void *args) {
 
 	/* Parse the command-line arguments */
 
-	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, NULL, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
+	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, module_kw, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
 	if (GMT_Parse_Common (API, THIS_MODULE_OPTIONS, options)) Return (API->error);
 	Ctrl = New_Ctrl (GMT);	/* Allocate and initialize a new control structure */
 	if ((error = parse (GMT, Ctrl, options)) != 0) Return (error);
@@ -459,7 +488,22 @@ EXTERN_MSC int GMT_grdcut (void *V_API, int mode, void *args) {
 	if (Ctrl->D.quit)	/* Already reported information deep inside gmt_init_module */
 		Return (GMT_NOERROR);
 
-	gmt_grd_set_datapadding (GMT, true);	/* Turn on gridpadding when reading a subset */
+	gmt_grd_set_datapadding (GMT, true);	/* Turn on grid padding when reading a subset */
+
+	if (Ctrl->E.active) {	/* Extract a vertical slice grid aligned with x or y axis from a cube */
+		struct GMT_CUBE *C = NULL;
+		if ((C = GMT_Read_Data (API, GMT_IS_CUBE, GMT_IS_FILE, GMT_IS_VOLUME, GMT_CONTAINER_AND_DATA, NULL, Ctrl->In.file, NULL)) == NULL)
+			Return (GMT_DATA_READ_ERROR);
+		if ((G = gmt_vertical_cube_cut (GMT, C, Ctrl->E.dim, Ctrl->E.coord)) == NULL)
+			Return (API->error);
+		if (GMT_Set_Comment (API, GMT_IS_GRID, GMT_COMMENT_IS_OPTION | GMT_COMMENT_IS_COMMAND, options, G))
+			Return (API->error);
+		if (GMT_Write_Data (API, GMT_IS_GRID, GMT_IS_FILE, GMT_IS_SURFACE, GMT_CONTAINER_AND_DATA, NULL, Ctrl->G.file, G) != GMT_NOERROR) {
+			Return (API->error);
+		}
+		gmt_free_grid (GMT, &G, true);
+		Return (GMT_NOERROR);
+	}
 
 	if (!Ctrl->Z.active) {	/* All of -F, -R, -S selections first needs the header */
 		if (Ctrl->In.type == GMT_IS_IMAGE) {
@@ -486,7 +530,8 @@ EXTERN_MSC int GMT_grdcut (void *V_API, int mode, void *args) {
 	}
 
 	if (Ctrl->Z.active) {	/* Must determine new region via -Z, so get entire grid first */
-		unsigned int row0 = 0, row1 = 0, col0 = 0, col1 = 0, row, col, sum, side, count[4];
+		openmp_int row0 = 0, row1 = 0, col0 = 0, col1 = 0, row, col;
+		unsigned int sum, side, count[4];
 		bool go;
 		struct GMT_GRID_HIDDEN *GH = NULL;
 
@@ -594,7 +639,7 @@ EXTERN_MSC int GMT_grdcut (void *V_API, int mode, void *args) {
 				if (!go) col1 = col;	/* Found stopping col */
 			}
 		}
-		if (row0 == 0 && col0 == 0 && row1 == (h->n_rows-1) && col1 == (h->n_columns-1)) {
+		if (row0 == 0 && col0 == 0 && row1 == (openmp_int)(h->n_rows-1) && col1 == (openmp_int)(h->n_columns-1)) {
 			GMT_Report (API, GMT_MSG_WARNING, "Your -Z limits produced no subset - output grid is identical to input grid\n");
 			gmt_M_memcpy (wesn_new, h->wesn, 4, double);
 		}
@@ -887,7 +932,8 @@ EXTERN_MSC int GMT_grdcut (void *V_API, int mode, void *args) {
 	nx_old = h->n_columns;		ny_old = h->n_rows;
 
 	if (Ctrl->F.active && Ctrl->In.type == GMT_IS_GRID) {	/* Must reset nodes outside the polygon to NaN */
-		unsigned int row, col, set;
+		openmp_int row, col;
+		unsigned int set;
 		uint64_t n_nodes = 0;
 		gmt_set_inside_mode (GMT, D, GMT_IOO_UNKNOWN);
 		if (GMT_Read_Data (API, GMT_IS_GRID, GMT_IS_FILE, GMT_IS_SURFACE, GMT_DATA_ONLY | add_mode, wesn_new, Ctrl->In.file, G) == NULL) {	/* Get subset (unless memory file) */
@@ -918,6 +964,8 @@ EXTERN_MSC int GMT_grdcut (void *V_API, int mode, void *args) {
 			if (GMT_Read_Data (API, GMT_IS_GRID, GMT_IS_FILE, GMT_IS_SURFACE, GMT_DATA_ONLY | add_mode, wesn_new, Ctrl->In.file, G) == NULL) {	/* Get subset (unless memory file) */
 				Return (API->error);
 			}
+			if (strstr(Ctrl->In.file, "/=tiled_") || strstr(Ctrl->In.file, "\\=tiled_"))	/* Special list with remote tiles, not used anymore */
+				gmt_remove_file(GMT, Ctrl->In.file);
 		}
 		else if (!do_via_gdal) {
 			if (GMT_Read_Data (API, GMT_IS_IMAGE, GMT_IS_FILE, GMT_IS_SURFACE, GMT_DATA_ONLY, wesn_new, Ctrl->In.file, I) == NULL) { 	/* Get subset */
@@ -943,7 +991,8 @@ EXTERN_MSC int GMT_grdcut (void *V_API, int mode, void *args) {
 		}
 	}
 	if (Ctrl->N.active && extend) {	/* Now shrink pad back to default and simultaneously extend region and apply nodata values */
-		unsigned int xlo, xhi, ylo, yhi, row, col, n_zero, n_zero_e;
+		openmp_int xlo, xhi, ylo, yhi, row, col;
+		unsigned int n_zero, n_zero_e;
 		double dx, dy;
 		n_zero = 0;	/* Count zeros in the grid before extension */
 		gmt_M_grd_loop (GMT, G, row, col, node) {
@@ -957,20 +1006,20 @@ EXTERN_MSC int GMT_grdcut (void *V_API, int mode, void *args) {
 		/* dx,dy are needed when the grid is pixel-registered as the w/e/s/n bounds are off by 0.5 {dx,dy} relative to node coordinates */
 		dx = h->inc[GMT_X] * h->xy_off;	dy = h->inc[GMT_Y] * h->xy_off;
 
-		xlo = outside[XLO] ? (unsigned int)gmt_M_grd_x_to_col (GMT, wesn_old[XLO] + dx, h) : 0;
-		xhi = outside[XHI] ? (unsigned int)gmt_M_grd_x_to_col (GMT, wesn_old[XHI] - dx, h) : h->n_columns - 1;
-		ylo = outside[YLO] ? (unsigned int)gmt_M_grd_y_to_row (GMT, wesn_old[YLO] + dy, h) : h->n_rows - 1;
-		yhi = outside[YHI] ? (unsigned int)gmt_M_grd_y_to_row (GMT, wesn_old[YHI] - dy, h) : 0;
+		xlo = outside[XLO] ? (openmp_int)gmt_M_grd_x_to_col (GMT, wesn_old[XLO] + dx, h) : 0;
+		xhi = outside[XHI] ? (openmp_int)gmt_M_grd_x_to_col (GMT, wesn_old[XHI] - dx, h) : h->n_columns - 1;
+		ylo = outside[YLO] ? (openmp_int)gmt_M_grd_y_to_row (GMT, wesn_old[YLO] + dy, h) : h->n_rows - 1;
+		yhi = outside[YHI] ? (openmp_int)gmt_M_grd_y_to_row (GMT, wesn_old[YHI] - dy, h) : 0;
 		if (outside[XLO]) {
-			for (row = 0; row < h->n_rows; row++)
+			for (row = 0; row < (openmp_int)h->n_rows; row++)
 				for (col = 0; col < xlo; col++) G->data[gmt_M_ijp(h,row,col)] = Ctrl->N.value;
 		}
 		if (outside[XHI]) {
-			for (row = 0; row < h->n_rows; row++)
-				for (col = xhi+1; col < h->n_columns; col++) G->data[gmt_M_ijp(h,row,col)] = Ctrl->N.value;
+			for (row = 0; row < (openmp_int)h->n_rows; row++)
+				for (col = xhi+1; col < (openmp_int)h->n_columns; col++) G->data[gmt_M_ijp(h,row,col)] = Ctrl->N.value;
 		}
 		if (outside[YLO]) {
-			for (row = ylo+1; row < h->n_rows; row++)
+			for (row = ylo+1; row < (openmp_int)h->n_rows; row++)
 				for (col = xlo; col <= xhi; col++) G->data[gmt_M_ijp(h,row,col)] = Ctrl->N.value;
 		}
 		if (outside[YHI]) {
@@ -1005,11 +1054,11 @@ EXTERN_MSC int GMT_grdcut (void *V_API, int mode, void *args) {
 	}
 
 	if (Ctrl->S.set_nan && Ctrl->In.type == GMT_IS_GRID) {	/* Set all nodes outside the circle to NaN */
-		unsigned int row, col;
+		openmp_int row, col;
 		uint64_t n_nodes = 0;
 
-		for (row = 0; row < h->n_rows; row++) {
-			for (col = 0; col < h->n_columns; col++) {
+		for (row = 0; row < (openmp_int)h->n_rows; row++) {
+			for (col = 0; col < (openmp_int)h->n_columns; col++) {
 				distance = gmt_distance (GMT, Ctrl->S.lon, Ctrl->S.lat, G->x[col], G->y[row]);
 				if (distance > Ctrl->S.radius) {	/* Outside circle */
 					node = gmt_M_ijp (h, row, col);
@@ -1024,10 +1073,14 @@ EXTERN_MSC int GMT_grdcut (void *V_API, int mode, void *args) {
 	/* Send the subset of the grid or image to the gridfile destination. */
 
 	if (Ctrl->In.type == GMT_IS_GRID) {	/* Write a grid */
-		if (GMT_Set_Comment (API, GMT_IS_GRID, GMT_COMMENT_IS_OPTION | GMT_COMMENT_IS_COMMAND, options, G)) Return (API->error);
-		if (GMT_Write_Data (API, GMT_IS_GRID, GMT_IS_FILE, GMT_IS_SURFACE, GMT_CONTAINER_AND_DATA, NULL, Ctrl->G.file, G) != GMT_NOERROR) {
+		if (GMT_Set_Comment (API, GMT_IS_GRID, GMT_COMMENT_IS_OPTION | GMT_COMMENT_IS_COMMAND, options, G))
 			Return (API->error);
-		}
+		if (API->external) {	/* No need to BC and, mainly, avoid a bug that plagues cutting global grids from externals */
+			HH = gmt_get_H_hidden (G->header);
+			HH->no_BC = 1;
+		} 
+		if (GMT_Write_Data (API, GMT_IS_GRID, GMT_IS_FILE, GMT_IS_SURFACE, GMT_CONTAINER_AND_DATA, NULL, Ctrl->G.file, G) != GMT_NOERROR)
+			Return (API->error);
 	}
 	else {	/* Write an image */
 		if (do_via_gdal) {	/* Special case of multi-band geotiff */
@@ -1039,7 +1092,8 @@ EXTERN_MSC int GMT_grdcut (void *V_API, int mode, void *args) {
 				sprintf (driver, "-of GTiff -co COMPRESS=DEFLATE");
 			else
 				sprintf (driver, "-of netCDF -co COMPRESS=DEFLATE -co FORMAT=NC4 -co ZLEVEL=%d -a_nodata NaN", GMT->current.setting.io_nc4_deflation_level);
-			sprintf (cmd, "gdal_translate -projwin %.10lg %.10lg %.10lg %.10lg %s %s %s", wesn_new[XLO], wesn_new[YHI], wesn_new[XHI], wesn_new[YLO], driver, Ctrl->In.file, Ctrl->G.file);
+			sprintf (cmd, "gdal_translate -projwin %.10lg %.10lg %.10lg %.10lg %s %c%s%c %c%s%c", wesn_new[XLO], wesn_new[YHI], wesn_new[XHI], wesn_new[YLO], driver,
+					quote, Ctrl->In.file, quote, quote, Ctrl->G.file, quote);
 			if (c) c[0] = '=';	/* Restore full file name */
 			if (b) b[0] = '+';	/* Restore band requests */
 			if (b) {	/* Parse and add specific band request(s) to gdal_translate */

@@ -1,7 +1,7 @@
 # Building GMT
 
 This document describes how to build GMT from source codes
-(stable release or development version) on Linux, FreeBSD, OpenBSD, macOS and Windows.
+(stable release or development version) on Linux, FreeBSD, macOS and Windows.
 
 ## Contents
 
@@ -23,16 +23,17 @@ for instructions to install these dependencies on various operation systems.
 
 To build GMT, you have to install:
 
-- [CMake](https://cmake.org/) (>=2.8.12)
+- [CMake](https://cmake.org/) (>=3.16)
 - [netCDF](https://www.unidata.ucar.edu/software/netcdf/) (>=4.0, netCDF-4/HDF5 support mandatory)
 - [curl](https://curl.haxx.se/)
+- [GDAL](https://www.gdal.org/) (Ability to read and write numerous grid and image formats)
+- [Ninja](https://ninja-build.org/) (optional but recommended for faster building)
 
 ### Optional dependencies
 
 Optionally install these for more capabilities within GMT:
 
 - [Ghostscript](https://www.ghostscript.com/) (Ability to convert PostScript plots to PDF and rasters)
-- [GDAL](https://www.gdal.org/) (Ability to read and write numerous grid and image formats)
 - [GEOS](https://trac.osgeo.org/geos/) (Ability to buffer lines and polygons)
 - [PCRE](https://www.pcre.org/) or PCRE2 (Regular expression support)
 - [FFTW](http://www.fftw.org/) single-precision (Fast FFTs, >=3.3 [not needed under macOS])
@@ -55,7 +56,7 @@ Install for building GMT documentation and running tests (not required for gener
 
 - [Sphinx](http://www.sphinx-doc.org) (>=1.8, for building the documentation)
 - [GraphicsMagick](http://www.graphicsmagick.org/) (for running the tests)
-- [Ninja](https://ninja-build.org/) (optional, build system focused on speed)
+- [dvc](https://dvc.org/) (for running the tests and building the documentation)
 - [pngquant](https://pngquant.org/) (optional, for optimizing PNG images in the documentation)
 
 ### Required support data
@@ -137,7 +138,7 @@ where the build files will be generated, and change into your build directory:
 ```
 mkdir build
 cd build
-cmake ..
+cmake .. -G Ninja
 ```
 
 For Windows users, you need to open a command prompt and run:
@@ -149,22 +150,17 @@ via vcpkg following [these instructions](https://github.com/GenericMappingTools/
 mkdir build
 cd build
 # For x64 build
-cmake .. -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake -DCMAKE_GENERATOR_PLATFORM=x64
+cmake .. -G Ninja -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake -DCMAKE_GENERATOR_PLATFORM=x64
 # For x86 build
-cmake .. -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake -DCMAKE_GENERATOR_PLATFORM=x86
+cmake .. -G Ninja -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake -DCMAKE_GENERATOR_PLATFORM=x86
 ```
-
-For advanced users, you can append the option `-G Ninja` to use the
-build tool [Ninja](https://ninja-build.org/), which is a small build system
-with a focus on speed.
-
 
 ## Building GMT source codes
 
 In the build directory, type
 
 ```
-# Linux/macOS/FreeBSD/OpenBSD
+# Linux/macOS/FreeBSD
 cmake --build .
 
 # Windows
@@ -185,7 +181,7 @@ tool's default number is used.
 ## Installing
 
 ```
-# Linux/macOS/FreeBSD/OpenBSD
+# Linux/macOS/FreeBSD
 cmake --build . --target install
 
 # Windows

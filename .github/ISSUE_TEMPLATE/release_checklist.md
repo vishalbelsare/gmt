@@ -13,18 +13,19 @@ assignees: ''
 
 **Before release**:
 
+- [ ] check if there are new [SCM releases](https://doi.org/10.5281/zenodo.1243862)
 - [ ] check if all tests pass on macOS, Linux and Windows
 - [ ] check if other GMT-derived projects work well
-	- [ ] MB-System (@PaulWessel)
-	- [ ] GMTSAR (@PaulWessel)
+	- [ ] MB-System
+	- [ ] GMTSAR
 	- [ ] GMT.jl (@joa-quim)
-	- [ ] PyGMT (@leouieda, @seisman, @weiji14)
-	- [ ] gmtmex (@PaulWessel, @joa-quim)
-- [ ] reserve a DOI on [zenodo](https://zenodo.org) (@PaulWessel)
-- [ ] run `src/gmt_make_*.sh` to update some .c and .h files
+	- [ ] PyGMT (@seisman, @weiji14, @maxrjones)
+	- [ ] gmtmex (@joa-quim)
+- [ ] reserve a DOI on [zenodo](https://zenodo.org/doi/10.5281/zenodo.3407865) (@seisman)
 - [ ] run `admin/gs_check.sh` to test if latest ghostscript version works
 - [ ] update [changelog](https://github.com/GenericMappingTools/gmt/blob/master/doc/rst/source/changes.rst)
-- [ ] check installation instructions in [INSTALL.md](https://github.com/GenericMappingTools/gmt/blob/master/INSTALL.md)
+- [ ] update the version information in CITATION.cff
+- [ ] check installation instructions in `doc/rst/source/install.rst`
 - [ ] check if there are any warnings when building the documentation
 - [ ] add one new entry in `doc/rst/_static/version_switch.js` if it's a minor release
 - [ ] check/set values in `cmake/ConfigDefault.cmake`
@@ -37,13 +38,14 @@ assignees: ''
 
 **Release**:
 
-- [ ] create source tarballs (tar.gz and tar.xz) (@PaulWessel, @meghanrjones)
-- [ ] create macOS bundle (@PaulWessel, @meghanrjones)
-- [ ] create Windows installers (win32 and win64) (@joa-quim)
-- [ ] check if the source tarballs, macOS bundle and Windows installers work well
-- [ ] upload source tarballs, macOS bundle, Windows installers to the GMT FTP (@PaulWessel, @meghanrjones)
-- [ ] update README and VERSION files on the GMT FTP (@PaulWessel)
-- [ ] make a tag and push it to github (**Must be done after uploading packages to the GMT FTP**)
+- [ ] Make sure that "set (DO_TESTS ON)" and "set (DO_SUPPLEMENT_TESTS ON)" **Are commented** in ConfigUser.cmake
+- [ ] create source tarballs (tar.gz and tar.xz)
+  This is done by `admin/build-release.sh`, and is executed by: 
+  `cmake --build . --target gmt_release` plus `cmake --build . --target gmt_release_tar`
+- [ ] create Windows win64 installer and portable installer (@joa-quim)
+- [ ] check if the source tarballs for Linux work well (@Esteban82, @anbj)
+- [ ] check if the Windows installers work well (volunteers needed!)
+- [ ] make a tag and push it to github (**Must replace the old FTP with a place to upload packages**)
     ```bash
     # checkout master (for minor releases) or 6.x branch (for patch releases)
     git checkout XXXX
@@ -53,37 +55,32 @@ assignees: ''
     git push --tags
     ```
 - [ ] make a GitHub release.
-  The GitHub Actions automatically create a draft release after pushing the tag to github.
+  The GitHub Actions automatically create a draft release after pushing the tag to github (**FAILS WHILE FTP IS NOT REPLACED**).
   We need to go to the [GitHub Release](https://github.com/GenericMappingTools/gmt/releases) page, and review it manually.
-  - [ ] 7 files are attached as release assets (2 source tarballs, 4 installers and 1 checksum file).
+  - [ ] 5 files are attached as release assets (2 source tarballs, 2 installers and 1 checksum file).
   - [ ] download the checksum file and check if the checksums are correct
   - [ ] edit the draft release, set the target to the correct tag, and publish the release
-- [ ] upload the tarball to zenodo (@PaulWessel)
+- [ ] upload the tarball to [zenodo](https://zenodo.org/doi/10.5281/zenodo.3407865) (@seisman)
 - [ ] make announcements in the [GMT forum](https://forum.generic-mapping-tools.org/)
-- [ ] make announcements on the [GMT twitter](https://twitter.com/gmt_dev)
-- [ ] update links on the main site (News, Download & Documentation)
+- [ ] make announcements on the [GMT Instagram](https://www.instagram.com/genericmappingtools/)
+- [ ] update links on the main site (Download & Documentation)
+- [ ] update install instructions on the wiki if needed
 
 **After release**:
 
-- [ ] create branch 6.x for bug-fixes if this is a minor release (i.e. create branch 6.1 after 6.1.0 is released)
-  ```
-  git checkout master
-  git checkout -b 6.1
-  git push --set-upstream origin 6.1
-  ```
-- [ ] update `GMT_PACKAGE_VERSION_*` in `cmake/ConfigDefault.cmake`
-- [ ] comment the `set (GMT_PUBLIC_RELEASE TRUE)` line
-- [ ] commit changes to GitHub
+- [ ] Reset for the next version
+      - [ ] update `GMT_PACKAGE_VERSION_*` in `cmake/ConfigDefault.cmake`
+      - [ ] comment the `set (GMT_PUBLIC_RELEASE TRUE)` line
 
 **3rd-party update**
 
 **Volunteers needed!** Please let us know if you volunteer to help to maintain GMT in these 3rd-party tools.
 
 - [ ] update [conda-forge feedstock](https://github.com/conda-forge/gmt-feedstock) (@leouieda, @seisman, @weiji14)
-- [ ] update [homebrew formula](https://github.com/Homebrew/homebrew-core/blob/master/Formula/gmt.rb) (@claudiodsf, @seisman)
+- [ ] update [homebrew formula](https://github.com/Homebrew/homebrew-core/blob/master/Formula/g/gmt.rb) (@claudiodsf, @seisman)
 - [ ] update [macports ports](https://github.com/macports/macports-ports/blob/master/science/gmt5/Portfile) (@remkos, @seisman)
 - [ ] update [the RPM repository](https://copr.fedorainfracloud.org/coprs/genericmappingtools/gmt/) (@seisman)
-- [ ] update the [try-gmt](https://github.com/GenericMappingTools/try-gmt) Jupyter lab (@weiji14, @seisman)
+- [ ] update the [try-gmt](https://github.com/GenericMappingTools/try-gmt) Jupyter lab (@weiji14, @seisman, @maxrjones)
 - [ ] update [winget manifest file](https://github.com/microsoft/winget-pkgs/tree/master/manifests/g/GenericMappingTools/gmt) (@seisman)
 
 ---

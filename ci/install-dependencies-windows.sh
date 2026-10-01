@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Bash script to install GMT dependencies on Windows via vcpkg and chocolatey
+# Bash script to install GMT dependencies on Windows via vcpkg and conda
 #
 # Environmental variables that can control the installation:
 #
@@ -19,7 +19,7 @@ PACKAGE="${PACKAGE:-false}"
 WIN_PLATFORM=x64-windows
 
 # install libraries
-vcpkg install netcdf-c gdal[core,tools] pcre2 fftw3[core,threads] clapack openblas --triplet ${WIN_PLATFORM}
+vcpkg install --recurse netcdf-c gdal[core,tools,geos,netcdf,png,openjpeg,jpeg,gif] pcre2 fftw3[core,threads] clapack openblas --triplet ${WIN_PLATFORM}
 # Executable files search for DLL files in the directories listed in the PATH environment variable.
 echo "${VCPKG_INSTALLATION_ROOT}/installed/${WIN_PLATFORM}/bin" >> $GITHUB_PATH
 # Tools like gdal_translate, ogr2ogr are located in tools/gdal
@@ -28,34 +28,43 @@ echo "${VCPKG_INSTALLATION_ROOT}/installed/${WIN_PLATFORM}/tools/gdal" >> $GITHU
 # list installed packages
 vcpkg list
 
-# install more packages using chocolatey
-choco install ninja
-choco install ghostscript --version 9.50
-
+conda_packages="ninja ghostscript=10.03.0"
 if [ "$BUILD_DOCS" = "true" ]; then
-    pip install --user docutils==0.17 sphinx
-    # Add sphinx to PATH
-    echo "$(python -m site --user-site)\..\Scripts" >> $GITHUB_PATH
-
-    choco install pngquant
-    choco install graphicsmagick
-    # Add GraphicsMagick to PATH
-    echo 'C:\Program Files\GraphicsMagick-1.3.32-Q8' >> $GITHUB_PATH
-
-    choco install ffmpeg
-    # Add ffmpeg to PATH
-    echo 'C:\ProgramData\chocolatey\lib\ffmpeg\tools' >> $GITHUB_PATH
+    conda_packages+=" sphinx dvc"
+    # choco install pngquant
 fi
 
 if [ "$RUN_TESTS" = "true" ]; then
-    choco install graphicsmagick
-    # Add GraphicsMagick to PATH
-    echo 'C:\Program Files\GraphicsMagick-1.3.32-Q8' >> $GITHUB_PATH
+    conda_packages+=" dvc"
+
+    # Install graphicsmagick via choco (retry: SourceForge download occasionally times out)
+    for i in 1 2 3; do
+        choco install graphicsmagick --version 1.3.42 --no-progress && break
+        [ "$i" -lt 3 ] || { echo "choco install graphicsmagick failed after $i attempts" >&2; exit 1; }
+        sleep 15
+    done
+    echo 'C:\Program Files\GraphicsMagick-1.3.42-Q8\' >> $GITHUB_PATH
 fi
 
 # we need the GNU tar for packaging
 if [ "$PACKAGE" = "true" ]; then
     echo 'C:\Program Files\Git\usr\bin\' >> $GITHUB_PATH
+    # Install NSIS for building Windows installer
+    choco install nsis --no-progress
+fi
+
+# install more packages using conda
+$CONDA\\Scripts\\conda.exe install ${conda_packages} -c conda-forge
+echo "$CONDA\\Library\\bin" >> $GITHUB_PATH
+echo "$CONDA\\Scripts" >> $GITHUB_PATH
+
+# Add the vcpkg path again so it's prepended before conda's path and cmake can find
+# the vcpkg library correctly
+echo "${VCPKG_INSTALLATION_ROOT}/installed/${WIN_PLATFORM}/bin" >> $GITHUB_PATH
+
+# Install Sphinx extensions
+if [ "$BUILD_DOCS" = "true" ]; then
+    ${CONDA}/python -m pip install --user -r doc/rst/requirements.txt
 fi
 
 set +x +e

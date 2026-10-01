@@ -7,7 +7,7 @@
 # DEM:  @earth_relief_03s
 # Data: @GCMT_1976-2017_meca.gmt 
 #
-# The original data file jan76_dec17.ndk can be downloaded and rearranged to a gmt format with the followings commands:
+# The original data file jan76_dec17.ndk can be downloaded and rearranged to a gmt format with the following commands:
 # URL="https://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/jan76_dec17.ndk"
 # gmt which $URL -G 
 # gawk '/^PDE/ {Date=$2; Time=$3; Lat=$4; Long=$5; Depth=$6; getline; Name=$1; getline; getline; Exp=$1; getline; mant=$11; strike1=$12; dip1=$13; rake1=$14; strike2=$15; dip2=$16; rake2=$17; print Long, Lat, Depth, strike1, dip1, rake1, strike2, dip2, rake2, mant, Exp, Date "T" Time, Name}' jan76_dec17.ndk | sed 's/\//-/g' > meca.gmt
@@ -44,12 +44,12 @@ gmt select @GCMT_1976-2017_meca.gmt -Ltmp_profile+d$Dist+p -fg > coupe_I.gmt
 gmt select @GCMT_1976-2017_meca.gmt -Ltmp_profile+d$Dist+p -fg > coupe_O.gmt -Il
 # Calculate variables (profile length, maximum depth of events (+10 to avoid clipping in the profile), vertical exaggeration, table of angles).
 KM=$(echo $Long1 $Lat1 | gmt mapproject -G$Long2/$Lat2+uk -o2)
-DepthMax=$(gmt info coupe_I.gmt -C2 -o5 | gmt math -Q STDIN 10 ADD =)
+DepthMax=$(gmt info coupe_I.gmt -C -o5 | gmt math -Q STDIN 10 ADD =)
 VE=$(gmt math -Q $KM $H MUL $W DIV $DepthMax DIV = --FORMAT_FLOAT_OUT=%.2g)
 gmt math -T$Angles T SIND -o0,1,0 = | gmt math STDIN -T -C0 COSD = | gawk '$0=$0"@."' > angles.txt
 Ha=$(gmt math -Q $H 0.7c SUB =) # Height of inset with angles
 Wa=$(gmt math -Q $Ha $VE DIV =) # Width of inset with angles (calculated from vertical exaggeration to have same deformation as the profile)
-#       -----------------------------------------------------------------------------------------------------------
+# 1. Create background plot and data files needed in the loop
 cat << EOF > pre.sh
 	gmt set FONT_LABEL 10p FONT_ANNOT_PRIMARY 7p MAP_FRAME_PEN thin,black MAP_GRID_PEN faint,gray
 gmt begin
@@ -59,7 +59,7 @@ gmt begin
 	gmt makecpt -T0/$DepthMax -Chot -I -H > q.cpt
 	# 1c. Draw profile
 	gmt basemap -R0/$KM/0/$DepthMax -JX$W/-$H -Bg25 -BwESn -Bxaf+l"Distance (km)" -Byaf+l"Depth (km)" -X$X -Y$Y
-	gmt inset begin -DjLB+w$Wa/$Ha+o0.1c/0.2c -F+p+gwhite+s+r -M0.15c
+	gmt inset begin -DjLB+w$Wa/$Ha+o0.1c/0.2c -F+p+gwhite+s+r -C0.15c
 		gmt plot angles.txt -Wthinnest,red -Bnw -Bg -R0/1/0/1 -JX?/-? --MAP_FRAME_TYPE=graph -Fr0/0 -i0-1+s0.9
 		gmt text angles.txt -F+f6 -N
 	gmt inset end

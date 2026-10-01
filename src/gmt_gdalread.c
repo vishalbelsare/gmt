@@ -1,16 +1,16 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
- *      This program is free software; you can redistribute it and/or modify
- *      it under the terms of the GNU Lesser General Public License as published by
- *      the Free Software Foundation; version 3 or any later version.
+ *	This program is free software; you can redistribute it and/or modify
+ *	it under the terms of the GNU Lesser General Public License as published by
+ *	the Free Software Foundation; version 3 or any later version.
  *
- *      This program is distributed in the hope that it will be useful,
- *      but WITHOUT ANY WARRANTY; without even the implied warranty of
- *      MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *      GNU Lesser General Public License for more details.
+ *	This program is distributed in the hope that it will be useful,
+ *	but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *	GNU Lesser General Public License for more details.
  *
  *	Contact info: www.generic-mapping-tools.org
  *--------------------------------------------------------------------*/
@@ -21,17 +21,19 @@
  * Author:	Joaquim Luis
  * Date:	27-Aug-2009
  * Revision: 1		Based on gdalread.c MEX from Mirone
- *			The populate_metadata() was modified from mexgdal of John Evans (johnevans@acm.org)
+ *			The gmtgdalread_populate_metadata() was modified from mexgdal of John Evans (johnevans@acm.org)
  *
- * Public functions (2):
+ * A) List of exported gmt_* functions available to modules and libraries via gmt_dev.h:
+ *	gmt_gdalread     : Read a GDAL grid
+ *
+ * B) List of exported gmtlib_* functions available to libraries via gmt_internals.h:
  *
  *	gmtlib_is_gdal_grid : Determine if a grid is GDAL readable
- *	gmt_gdalread     : Read a GDAL grid
  */
 
 /* Local functions */
 
-GMT_LOCAL GDALDatasetH gdal_open (struct GMT_CTRL *GMT, char *gdal_filename) {
+GMT_LOCAL GDALDatasetH gmtgdalread_gdal_open (struct GMT_CTRL *GMT, char *gdal_filename) {
 	char *file = NULL, path[PATH_MAX] = {""}, *c = NULL;
 	if (gmtlib_found_url_for_gdal (gdal_filename))	/* A vis*** URL, pass to GDAL as is */
 		strncpy (path, gdal_filename, PATH_MAX-1);
@@ -51,7 +53,21 @@ GMT_LOCAL GDALDatasetH gdal_open (struct GMT_CTRL *GMT, char *gdal_filename) {
 	return (GDALOpen (path, GA_ReadOnly));
 }
 
-GMT_LOCAL int gdal_decode_columns (struct GMT_CTRL *GMT, char *txt, int *whichBands) {
+GMT_LOCAL int gmtgdalread_gmt_registration (GDALDatasetH hDataset) {
+	/* Grids saved by gmt_gdalwrite carry a GMT_REGISTRATION metadata item that states, without ambiguity,
+	   which registration the grid had.  We need it because GDAL only records AREA_OR_POINT in the file when
+	   it is "Point" ("Area" is the implicit default and is dropped, in particular for rasters that carry no
+	   referencing at all), so a pixel registered grid written to, say, a Cartesian GeoTIFF would otherwise
+	   come back as gridline registered.  Returns 1 (pixel), 0 (gridline) or GMT_NOTSET if the file has no
+	   such item, in which case the caller sticks to its own guess. */
+	const char *item = GDALGetMetadataItem (hDataset, "GMT_REGISTRATION", NULL);
+	if (item == NULL) return (GMT_NOTSET);
+	if (!strcmp (item, "pixel"))    return (1);
+	if (!strcmp (item, "gridline")) return (0);
+	return (GMT_NOTSET);
+}
+
+GMT_LOCAL int gmtgdalread_decode_columns (struct GMT_CTRL *GMT, char *txt, int *whichBands) {
 	unsigned int n = 0, i, start, stop, pos = 0;
 	char p[GMT_LEN256];
 	gmt_M_unused(GMT);
@@ -70,12 +86,12 @@ GMT_LOCAL int gdal_decode_columns (struct GMT_CTRL *GMT, char *txt, int *whichBa
 }
 
 /* ---------------------------------------------------------------------------------
- * record_geotransform:
+ * gmtgdalread_record_geotransform:
  *
  * If the gdal file is not internally georeferenced, try to get the world file.
  * Returns -1 in case no world file is found.
  */
-GMT_LOCAL int record_geotransform (char *gdal_filename, GDALDatasetH hDataset, double *adfGeoTransform) {
+GMT_LOCAL int gmtgdalread_record_geotransform (char *gdal_filename, GDALDatasetH hDataset, double *adfGeoTransform) {
 	int status = GMT_NOTSET;
 	char generic_buffer[5000];
 
@@ -97,10 +113,10 @@ GMT_LOCAL int record_geotransform (char *gdal_filename, GDALDatasetH hDataset, d
 }
 
 /************************************************************************/
-/*                        ReportCorner()                                */
+/*                        gmtgdalread_ReportCorner()                                */
 /************************************************************************/
 
-GMT_LOCAL int ReportCorner (struct GMT_CTRL *GMT, GDALDatasetH hDataset, OGRCoordinateTransformationH hTransform,
+GMT_LOCAL int gmtgdalread_ReportCorner (struct GMT_CTRL *GMT, GDALDatasetH hDataset, OGRCoordinateTransformationH hTransform,
                             double x, double y, double *xy_c, double *xy_geo) {
 	double	dfGeoX, dfGeoY;
 	double	adfGeoTransform[6];
@@ -139,10 +155,10 @@ GMT_LOCAL int ReportCorner (struct GMT_CTRL *GMT, GDALDatasetH hDataset, OGRCoor
 }
 
 /* -------------------------------------------------------------------- */
-GMT_LOCAL void ComputeRasterMinMax(struct GMT_CTRL *GMT, unsigned char *tmp, GDALRasterBandH hBand, double adfMinMax[2],
+GMT_LOCAL void gmtgdalread_ComputeRasterMinMax(struct GMT_CTRL *GMT, unsigned char *tmp, GDALRasterBandH hBand, double adfMinMax[2],
 			int nXSize, int nYSize, double z_min, double z_max) {
 	/* Compute Min/Max of a sub-region. I'm forced to do this because the
-	GDALComputeRasterMinMax works only on the entire dataset */
+	gmtgdalread_ComputeRasterMinMax works only on the entire dataset */
 	int	i, bGotNoDataValue;
 	int16_t	tmpI16;
 	uint16_t	tmpUI16;
@@ -223,7 +239,7 @@ GMT_LOCAL void ComputeRasterMinMax(struct GMT_CTRL *GMT, unsigned char *tmp, GDA
 	adfMinMax[1] = z_max;
 }
 
-int get_attrib_from_string(struct GMT_GDALREAD_OUT_CTRL *Ctrl, GDALRasterBandH hBand, int nBand, double  *dfNoDataValue) {
+GMT_LOCAL int gmtgdalread_get_attrib_from_string(struct GMT_GDALREAD_OUT_CTRL *Ctrl, GDALRasterBandH hBand, int nBand, double  *dfNoDataValue) {
 	/* Since several methods to get band's attributes for HDF5 Datasets are not yet implemented in GDAL2.1.0
 	   namely GDALGetRasterScale() and friends, the temporary work-around is to fish them from the Metadata
 	   strings that we can access via GDALGetMetadata().
@@ -255,7 +271,7 @@ int get_attrib_from_string(struct GMT_GDALREAD_OUT_CTRL *Ctrl, GDALRasterBandH h
 	return (GMT_NOERROR);
 }
 
-GMT_LOCAL int populate_metadata (struct GMT_CTRL *GMT, struct GMT_GDALREAD_OUT_CTRL *Ctrl, char *gdal_filename, int got_R,
+GMT_LOCAL int gmtgdalread_populate_metadata (struct GMT_CTRL *GMT, struct GMT_GDALREAD_OUT_CTRL *Ctrl, char *gdal_filename, int got_R,
                                  int nXSize, int nYSize, double dfULX, double dfULY, double dfLRX, double dfLRY,
 								 double z_min, double z_max, int first_layer) {
 /* =============================================================================================== */
@@ -319,6 +335,7 @@ GMT_LOCAL int populate_metadata (struct GMT_CTRL *GMT, struct GMT_GDALREAD_OUT_C
 	const char  *pszProjection = NULL;
 	int     i, j;
 	int     status, bSuccess;	/* success or failure */
+	int     reg_from_gmt;		/* Registration as declared by GMT when it wrote the file, or GMT_NOTSET */
 	int     nBand, raster_count;
 	int     bGotMin, bGotMax;	/* To know if driver transmitted Min/Max */
 	bool    got_noDataValue = false, pixel_reg = false, compute_minmax = false;
@@ -331,7 +348,7 @@ GMT_LOCAL int populate_metadata (struct GMT_CTRL *GMT, struct GMT_GDALREAD_OUT_C
 	/* ------------------------------------------------------------------------- */
 	/* Open the file (if we can). */
 	/* ------------------------------------------------------------------------- */
-	hDataset = gdal_open (GMT, gdal_filename);
+	hDataset = gmtgdalread_gdal_open (GMT, gdal_filename);
 	if (hDataset == NULL) {
 		GMT_Report (GMT->parent, GMT_MSG_ERROR, "Unable to open %s.\n", gdal_filename);
 		gmtlib_GDALDestroyDriverManager(GMT->parent);
@@ -375,7 +392,7 @@ GMT_LOCAL int populate_metadata (struct GMT_CTRL *GMT, struct GMT_GDALREAD_OUT_C
 	/* ------------------------------------------------------------------------- */
 	/* Record the geotransform. */
 	/* ------------------------------------------------------------------------- */
-	status = record_geotransform (gdal_filename, hDataset, adfGeoTransform);
+	status = gmtgdalread_record_geotransform (gdal_filename, hDataset, adfGeoTransform);
 	if (!strcmp(GDALGetDriverShortName(GDALGetDatasetDriver(hDataset)),"netCDF") && GDAL_VERSION_NUM <= 1450) {
 		adfGeoTransform[3] *= -1;
 		adfGeoTransform[5] *= -1;
@@ -444,11 +461,14 @@ GMT_LOCAL int populate_metadata (struct GMT_CTRL *GMT, struct GMT_GDALREAD_OUT_C
 
 	Ctrl->RasterCount = raster_count = GDALGetRasterCount(hDataset);
 
+	if (raster_count == 0)
+		GMT_Report(GMT->parent, GMT_MSG_ERROR, "No layers found in this file. Likely data is stored in SUBDATASETS\n.Must provide the SUBDATASET name.\n");
+
 	/* ------------------------------------------------------------------------- */
 	/* Get some metadata for each band. */
 	/* ------------------------------------------------------------------------- */
 
-	Ctrl->band_field_names = gmt_M_memory(GMT, NULL, raster_count, struct GDAL_BAND_FNAMES);
+	if ((Ctrl->band_field_names = gmt_M_memory(GMT, NULL, raster_count, struct GDAL_BAND_FNAMES)) == NULL) return GMT_NOTSET;
 
 	/* ==================================================================== */
 	/*      Loop over bands.                                                */
@@ -504,7 +524,7 @@ GMT_LOCAL int populate_metadata (struct GMT_CTRL *GMT, struct GMT_GDALREAD_OUT_C
 		if (bSuccess == 0 && strstr(Ctrl->DriverShortName, "HDF5") != NULL) {	/* several methods for HDF5 driver are not implemented */
 			GMT_Report(GMT->parent, GMT_MSG_INFORMATION, "An HDF5 file. Trying to get scale_offset from string metadata.\n");
 			dfNoDataValue = GMT->session.d_NaN;
-			get_attrib_from_string(Ctrl, hBand, nBand, &dfNoDataValue);			/* Go get them from the metadata in strings. */
+			gmtgdalread_get_attrib_from_string(Ctrl, hBand, nBand, &dfNoDataValue);			/* Go get them from the metadata in strings. */
 			if (!isnan(dfNoDataValue)) got_noDataValue = true;
 		}
 	}
@@ -521,7 +541,7 @@ GMT_LOCAL int populate_metadata (struct GMT_CTRL *GMT, struct GMT_GDALREAD_OUT_C
 	/* ------------------------------------------------------------------------- */
 	/* Get the first band NoData Value */
 	/* ------------------------------------------------------------------------- */
-	if (!got_noDataValue) {		/* May have been found if get_attrib_from_string() was acalled above */
+	if (!got_noDataValue) {		/* May have been found if gmtgdalread_get_attrib_from_string() was acalled above */
 		dfNoDataValue = GDALGetRasterNoDataValue(hBand, &status);
 		if (status)
 			Ctrl->nodata = dfNoDataValue;
@@ -536,7 +556,7 @@ GMT_LOCAL int populate_metadata (struct GMT_CTRL *GMT, struct GMT_GDALREAD_OUT_C
 		&& (hTable = GDALGetRasterColorTable(hBand)) != NULL) {
 
 		Ctrl->nIndexedColors = GDALGetColorEntryCount(hTable);
-		Ctrl->ColorMap = gmt_M_memory(GMT, NULL, Ctrl->nIndexedColors*4+1, int);
+		if ((Ctrl->ColorMap = gmt_M_memory(GMT, NULL, Ctrl->nIndexedColors*4+1, int)) == NULL) return GMT_NOTSET;
 		for (i = 0; i < Ctrl->nIndexedColors; i++) {
 			GDALGetColorEntryAsRGB(hTable, i, &sEntry);
 			gmt_M_set_rgba (Ctrl->ColorMap, i, 0, Ctrl->nIndexedColors, sEntry.c1);
@@ -554,7 +574,7 @@ GMT_LOCAL int populate_metadata (struct GMT_CTRL *GMT, struct GMT_GDALREAD_OUT_C
 		if (pszNBits && !strcmp(pszNBits, "1")) {
 			/* Create a two-color index table for black and white only */
 			Ctrl->nIndexedColors = 2;
-			Ctrl->ColorMap = gmt_M_memory(GMT, NULL, Ctrl->nIndexedColors*4+1, int);
+			if ((Ctrl->ColorMap = gmt_M_memory(GMT, NULL, Ctrl->nIndexedColors*4+1, int)) == NULL) return GMT_NOTSET;
 			for (j = 0; j < 3; j++) {	/* For R, G, B */
 				gmt_M_set_rgba (Ctrl->ColorMap, 0, j, Ctrl->nIndexedColors, 0);
 				gmt_M_set_rgba (Ctrl->ColorMap, 1, j, Ctrl->nIndexedColors, 255);
@@ -602,28 +622,28 @@ GMT_LOCAL int populate_metadata (struct GMT_CTRL *GMT, struct GMT_GDALREAD_OUT_C
 	}
 
 	if (!got_R)					/* Lower Left */
-		ReportCorner (GMT, hDataset, hTransform, 0.0, GDALGetRasterYSize(hDataset), xy_c, xy_geo[0]);
+		gmtgdalread_ReportCorner (GMT, hDataset, hTransform, 0.0, GDALGetRasterYSize(hDataset), xy_c, xy_geo[0]);
 	else
 		xy_c[0] = dfULX, xy_c[1] = dfLRY;
 	Ctrl->Corners.LL[0] = Ctrl->hdr[0] = xy_c[0];	/* xmin, ymin */
 	Ctrl->Corners.LL[1] = Ctrl->hdr[2] = xy_c[1];
 
 	if (!got_R)					/* Upper Left */
-		ReportCorner (GMT, hDataset, hTransform, 0.0, 0.0, xy_c, xy_geo[1]);
+		gmtgdalread_ReportCorner (GMT, hDataset, hTransform, 0.0, 0.0, xy_c, xy_geo[1]);
 	else
 		xy_c[0] = dfULX, xy_c[1] = dfULY;
 	Ctrl->Corners.UL[0] = xy_c[0];
 	Ctrl->Corners.UL[1] = xy_c[1];
 
 	if (!got_R)					/* Upper Right */
-		ReportCorner (GMT, hDataset, hTransform, GDALGetRasterXSize(hDataset), 0.0, xy_c, xy_geo[2]);
+		gmtgdalread_ReportCorner (GMT, hDataset, hTransform, GDALGetRasterXSize(hDataset), 0.0, xy_c, xy_geo[2]);
 	else
 		xy_c[0] = dfLRX, xy_c[1] = dfULY;
 	Ctrl->Corners.UR[0] = Ctrl->hdr[1] = xy_c[0];	/* xmax, ymax */
 	Ctrl->Corners.UR[1] = Ctrl->hdr[3] = xy_c[1];
 
 	if (!got_R)					/* Lower Right */
-		ReportCorner (GMT, hDataset, hTransform, GDALGetRasterXSize(hDataset), GDALGetRasterYSize(hDataset), xy_c, xy_geo[3]);
+		gmtgdalread_ReportCorner (GMT, hDataset, hTransform, GDALGetRasterXSize(hDataset), GDALGetRasterYSize(hDataset), xy_c, xy_geo[3]);
 	else
 		xy_c[0] = dfLRX, xy_c[1] = dfLRY;
 	Ctrl->Corners.LR[0] = xy_c[0];
@@ -680,25 +700,28 @@ GMT_LOCAL int populate_metadata (struct GMT_CTRL *GMT, struct GMT_GDALREAD_OUT_C
 			!strcmp(GDALGetMetadataItem(hDataset, "GDALMD_AREA_OR_POINT", NULL), "Area"))
 			pixel_reg = true;
 
+		if ((reg_from_gmt = gmtgdalread_gmt_registration (hDataset)) != GMT_NOTSET)
+			pixel_reg = (reg_from_gmt == 1);	/* File was written by GMT and it told us the registration */
+
 		Ctrl->hdr[6] = pixel_reg;
 		Ctrl->hdr[7] = adfGeoTransform[1];
 		Ctrl->hdr[8] = fabs(adfGeoTransform[5]);
+
+		if (got_R) {
+			Ctrl->hdr[0] = dfULX;	Ctrl->hdr[1] = dfLRX;
+			Ctrl->hdr[2] = dfLRY;	Ctrl->hdr[3] = dfULY;
+		}
 
 		if (Ctrl->hdr[2] > Ctrl->hdr[3]) {	/* Sometimes GDAL does it: y_min > y_max. If so, revert it */
 			tmpdble = Ctrl->hdr[2];
 			Ctrl->hdr[2] = Ctrl->hdr[3];
 			Ctrl->hdr[3] = tmpdble;
 		}
-
-		if (got_R) {
-			Ctrl->hdr[0] = dfULX;	Ctrl->hdr[1] = dfLRX;
-			Ctrl->hdr[2] = dfLRY;	Ctrl->hdr[3] = dfULY;
-		}
 	}
 
 	GDALClose (hDataset);
 
-	gmt_M_toc (GMT, "In populate_metadata");
+	gmt_M_toc (GMT, "In gmtgdalread_populate_metadata");
 
 	return (GMT_NOERROR);
 }
@@ -717,7 +740,7 @@ int gmtlib_is_gdal_grid (struct GMT_CTRL *GMT, struct GMT_GRID_HEADER *header) {
 	if (strstr(HH->name, ".jp2") || strstr(HH->name, ".JP2"))
 		if ((hDriver = GDALGetDriverByName("JP2OpenJPEG")) != NULL && (hDriver = GDALGetDriverByName("JP2ECW")) != NULL)
 			GDALDeregisterDriver(hDriver);		/* Deregister the JP2ECW driver. That is, prefer the OpenJPEG one */
-	hDataset = gdal_open (GMT, HH->name);
+	hDataset = gmtgdalread_gdal_open (GMT, HH->name);
 
 	if (hDataset == NULL)
 		return (GMT_GRDIO_BAD_VAL);
@@ -746,6 +769,7 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 	int nBufXSize[2] = {0,0}, nBufYSize, buffy, startRow = 0, endRow;
 	int nRowsPerBlock, nBlocks, nYOff, row_i, row_e;
 	int k, pad_w[2] = {0,0}, pad_e[2] = {0,0}, pad_s = 0, pad_n = 0;    /* Different pads for when sub-regioning near the edges */
+	int reg_from_gmt;	/* Registration as declared by GMT when it wrote the file, or GMT_NOTSET */
 	int	incStep = 1;	/* 1 for real only arrays and 2 for complex arrays (index step increment) */
 	int error = 0, gdal_code = 0, first_layer;
 	int piece, n_pieces = 1;	/* Normally 1, but will be 2 if the desired image subset is split across a periodic boundary */
@@ -756,11 +780,12 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 	bool   pixel_reg = false;	/* GDAL decides everything is pixel reg, we make our decisions based on data type */
 	bool   fliplr, got_R = false, got_r = false;
 	bool   topdown = false, rowmajor = true;               /* arrays from GDAL have this order */
-	bool   just_copy = false, copy_flipud = false;
+	bool   just_copy = false, copy_flipud = false, UDflip_Y = false;
 	int	   *whichBands = NULL;
 	int64_t *rowVec = NULL, *colVec = NULL;
-	int64_t  off, i_x_nXYSize, startColPos = 0, indent = 0, col_indent = 0, nXSize_withPad = 0, nYSize_withPad;
+	int64_t  off, i_x_nXYSize, startColPos = 0, indent = 0, nXSize_withPad = 0, nYSize_withPad;
 	int64_t  n_alloc, n, m, nn, mm, ij, layer_size, layer_offset = 0;
+	//int64_t  col_indent = 0;
 	unsigned char *tmp = NULL;
 	double  adfMinMax[2];
 	double	adfGeoTransform[6];
@@ -775,8 +800,8 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 	gmt_M_memset (anSrcWin, 4, int);
 
 	if (prhs->B.active) {		/* We have a selected bands request */
-		whichBands = gmt_M_memory (GMT, NULL, 128, int);		/* 128 is huge enough */
-		nReqBands = gdal_decode_columns (GMT, prhs->B.bands, whichBands);
+		if ((whichBands = gmt_M_memory (GMT, NULL, 128, int)) == NULL) return GMT_NOTSET;		/* 128 is huge enough */
+		nReqBands = gmtgdalread_decode_columns (GMT, prhs->B.bands, whichBands);
 	}
 	else if (prhs->f_ptr.active) {
 		/* Here we are going to read to a grid so if no band info was provided, default to read only the
@@ -903,8 +928,12 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 			GDALDeregisterDriver(hDriver);		/* Deregister the JP2ECW driver. That is, prefer the OpenJPEG one */
 
 	if (metadata_only) {	/* Just get the header info and return with it */
-		if (populate_metadata (GMT, Ctrl, gdal_filename, got_R, nXSize[0], nYSize, dfULX, dfULY, dfLRX, dfLRY, z_min, z_max, first_layer))
+		if (gmtgdalread_populate_metadata (GMT, Ctrl, gdal_filename, got_R, nXSize[0], nYSize, dfULX, dfULY, dfLRX, dfLRY, z_min, z_max, first_layer))
 			return(GMT_NOTSET);
+
+		/* See if uint8 images have set a noData */
+		if (Ctrl->band_field_names[0].nodata > -1e10)
+			Ctrl->nodata = Ctrl->band_field_names[0].nodata;
 
 		/* Return registration based on data type of first band. Byte is pixel reg otherwise set grid registration */
 		if (!Ctrl->hdr[6]) {		/* Grid registration */
@@ -917,10 +946,10 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 
 	/* Read the image */
 
-	hDataset = gdal_open (GMT, gdal_filename);
+	hDataset = gmtgdalread_gdal_open (GMT, gdal_filename);
 
 	if (hDataset == NULL) {
-		GMT_Report (GMT->parent, GMT_MSG_ERROR, "gmt_gdalread: gdal_open failed %s\n", CPLGetLastErrorMsg());
+		GMT_Report (GMT->parent, GMT_MSG_ERROR, "gmt_gdalread: gmtgdalread_gdal_open failed %s\n", CPLGetLastErrorMsg());
 		gmt_M_free (GMT, whichBands);
 		return (GMT_NOTSET);
 	}
@@ -943,6 +972,12 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 	if (status == CE_Failure && got_R) {
 		GMT_Report (GMT->parent, GMT_MSG_INFORMATION, "gmt_gdalread: Image %s does not have geographic coordinates so -R is ignored for subregion\n", gdal_filename);
 		got_R = false;
+	}
+	if ((dfLRY < dfULY) && adfGeoTransform[5] > 0) {
+		/* Case when y-axes comes positive up from GDAL (that normally has it positive down) */
+		double t;
+		t = dfLRY;	dfLRY = dfULY;	dfULY = t;
+		UDflip_Y = true;
 	}
 
 	if (got_R || got_r) {
@@ -1025,7 +1060,7 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 
 	/* The following assumes that all bands have the same PixelSize, data type. Otherwise ... */
 	hBand = GDALGetRasterBand(hDataset, first_layer);
-	nPixelSize = GDALGetDataTypeSize(GDALGetRasterDataType(hBand)) / 8;	/* /8 because return value is in BITS */
+	nPixelSize = GDALGetDataTypeSizeBytes(GDALGetRasterDataType(hBand));
 
 	if (jump) {
 		nBufXSize[0] = XDim / jump;
@@ -1049,10 +1084,13 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 
 	switch (GDALGetRasterDataType(hBand)) {
 		case GDT_Byte:
+			/* Because of a GDAL bug that misidentifies uint8 as GDT_CFloat64 (enum 14) we are forced to do this
+			   ugly patch. Make this conditional on a GDAL version when it is fixed upstream. */
+		case 14:
 			if (prhs->c_ptr.active)	/* We have a pointer with already allocated memory ready to use */
 				Ctrl->UInt8.data = prhs->c_ptr.grd;
-			else
-				Ctrl->UInt8.data = gmt_M_memory (GMT, NULL, n_alloc, uint8_t); /* aka unsigned char */
+			else if ((Ctrl->UInt8.data = gmt_M_memory (GMT, NULL, n_alloc, uint8_t)) == NULL)
+				return GMT_NOTSET; /* aka unsigned char */
 
 			if (do_BIP) {
 				if (nBands == 4)	/* Assume fourth band holds the alpha channel */
@@ -1068,8 +1106,8 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 				Ctrl->Float.data = prhs->f_ptr.grd;
 			else if (prhs->c_ptr.active) 	/* Use the previously allocated pointer */
 				Ctrl->Int16.data = (int16_t *)prhs->c_ptr.grd;
-			else
-				Ctrl->Int16.data = gmt_M_memory (GMT, NULL, n_alloc, int16_t);
+			else if ((Ctrl->Int16.data = gmt_M_memory (GMT, NULL, n_alloc, int16_t)) == NULL)
+				return GMT_NOTSET;
 			break;
 		case GDT_UInt16:
 			if (prhs->f_ptr.active) {	/* Use the previously allocated float pointer */
@@ -1080,24 +1118,24 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 				Ctrl->UInt16.data = (uint16_t *)prhs->c_ptr.grd;
 				Ctrl->UInt16.active = true;		/* In case it was not set yet */
 			}
-			else
-				Ctrl->UInt16.data = gmt_M_memory (GMT, NULL, n_alloc, uint16_t);
+			else if ((Ctrl->UInt16.data = gmt_M_memory (GMT, NULL, n_alloc, uint16_t)) == NULL)
+				return GMT_NOTSET;
 			break;
 		case GDT_Int32:
 			if (prhs->f_ptr.active)		/* Use the previously allocated float pointer */
 				Ctrl->Float.data = prhs->f_ptr.grd;
 			else if (prhs->c_ptr.active) 	/* Use the previously allocated pointer */
 				Ctrl->Int32.data = (int32_t *)prhs->c_ptr.grd;
-			else
-				Ctrl->Int32.data = gmt_M_memory (GMT, NULL, n_alloc, int32_t);
+			else if ((Ctrl->Int32.data = gmt_M_memory (GMT, NULL, n_alloc, int32_t)) == NULL)
+				return GMT_NOTSET;
 			break;
 		case GDT_UInt32:
 			if (prhs->f_ptr.active)		/* Use the previously allocated float pointer */
 				Ctrl->Float.data = prhs->f_ptr.grd;
 			else if (prhs->c_ptr.active) 	/* Use the previously allocated pointer */
 				Ctrl->UInt32.data = (uint32_t *)prhs->c_ptr.grd;
-			else
-				Ctrl->UInt32.data = gmt_M_memory (GMT, NULL, n_alloc, uint32_t);
+			else if ((Ctrl->UInt32.data = gmt_M_memory (GMT, NULL, n_alloc, uint32_t)) == NULL)
+				return GMT_NOTSET;
 			break;
 		case GDT_Float32:
 		case GDT_Float64:
@@ -1108,6 +1146,8 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 					Ctrl->Float.data = gmt_M_memory (GMT, NULL, n_alloc, float);
 				else
 					Ctrl->Float.data = gmt_M_memory (GMT, NULL, 2 * n_alloc, float);
+				if (Ctrl->Float.data == NULL)
+					return GMT_NOTSET;
 			}
 			break;
 		default:
@@ -1146,9 +1186,8 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 		}
 
 		/* Can't find why but have to multiply by nRGBA otherwise it crashes in win32 builds */
-		rowVec = gmt_M_memory(GMT, NULL, (nRowsPerBlock * nRGBA) * nBlocks, size_t);
-		for (m = 0; m < nY; m++) rowVec[m] = m * nX[piece];	/* Steps in pixels as we go down rows */
-		colVec = gmt_M_memory(GMT, NULL, (nX[piece]+pad_w[piece]+pad_e[piece]) * nRGBA, size_t);	/* For now this will be used only to select BIP ordering */
+		if ((rowVec = gmt_M_memory(GMT, NULL, (nRowsPerBlock * nRGBA) * nBlocks, size_t)) == NULL) return GMT_NOTSET;
+		if ((colVec = gmt_M_memory(GMT, NULL, (nX[piece]+pad_w[piece]+pad_e[piece]) * nRGBA, size_t)) == NULL) return GMT_NOTSET;	/* For now this will be used only to select BIP ordering */
 		for (i = 0; i < nBands; i++) {
 			if (!nReqBands)		/* No band selection, read them sequentially */
 				hBand = GDALGetRasterBand(hDataset, i+1);
@@ -1173,6 +1212,9 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 				else if (!pixel_reg && GDALGetMetadataItem(hDataset, "GDALMD_AREA_OR_POINT", NULL) &&
 					!strcmp(GDALGetMetadataItem(hDataset, "GDALMD_AREA_OR_POINT", NULL), "Area"))
 					pixel_reg = true;
+
+				if ((reg_from_gmt = gmtgdalread_gmt_registration (hDataset)) != GMT_NOTSET)
+					pixel_reg = (reg_from_gmt == 1);	/* File was written by GMT and it told us the registration */
 			}
 
 			i_x_nXYSize = i * ((size_t)nBufXSize[piece] + pad_w[piece] + pad_e[piece]) * ((size_t)nBufYSize + pad_s + pad_n);
@@ -1182,7 +1224,12 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 				row_i = k * nRowsPerBlock;
 				row_e = (k + 1) * nRowsPerBlock;
 				buffy = nRowsPerBlock;
-				for (m = 0; m < nRowsPerBlock; m++) rowVec[m+k*nRowsPerBlock] = m * nX[piece];
+				if (UDflip_Y) {		/* Case when y-axes comes positive up from GDAL (that normally has it positive down) */
+					size_t n = ((nRowsPerBlock-1) + (nBlocks-1) * nRowsPerBlock);
+					for (m = nRowsPerBlock-1; m >= 0 ; m--) rowVec[n - (m + k * nRowsPerBlock)] = m * nX[piece];
+				}
+				else
+					for (m = 0; m < nRowsPerBlock; m++) rowVec[m + k * nRowsPerBlock] = m * nX[piece];
 				if (k == nBlocks-1) {					/* Last block only by chance is not smaller than the others */
 					buffy = nBufYSize - k * nRowsPerBlock;
 					row_e = nYSize;
@@ -1202,7 +1249,7 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 
 				/* If we didn't compute it yet, its time to do it now (for this block) */
 				if (got_R) {	/* Update z_min, z_max in case we get here more than once (multiple blocks or two pieces) */
-					ComputeRasterMinMax(GMT, tmp, hBand, adfMinMax, nXSize[piece], buffy, z_min, z_max);
+					gmtgdalread_ComputeRasterMinMax(GMT, tmp, hBand, adfMinMax, nXSize[piece], buffy, z_min, z_max);
 					z_min = adfMinMax[0];	z_max = adfMinMax[1];
 				}
 
@@ -1230,6 +1277,9 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 
 				switch (GDALGetRasterDataType(hBand)) {
 					case GDT_Byte:
+						/* Because of a GDAL bug that misidentifies uint8 as GDT_CFloat64 we are forced to do this
+						   ugly patch. Make this conditional on a GDAL version when it is fixed upstream. */
+					case 14:
 						/* This chunk is kind of complicated because we want to take into account several different cases */
 						for (n = 0; n < nXSize[piece]; n++) {
 							if (do_BIP)			/* Vector for Pixel Interleaving */
@@ -1392,10 +1442,10 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 		gmt_M_free (GMT, rowVec);
 		if (!(just_copy || copy_flipud))
 			gmt_M_str_free (tmp);
-		col_indent = nXSize[piece];	/* The second time (if there is one) we must step in to pick up western section */
 		indent = pad_w[piece] + nXSize[piece];	/* The second time (if there is one) we must step in to pick up western section */
 		layer_offset += layer_size;	/* As of now, this is never used after increment for float images */
 #if 0	/* This code is problematic and commented out for now. PW, 5/15/2016 */
+		col_indent = nXSize[piece];	/* The second time (if there is one) we must step in to pick up western section */
 		if (Ctrl->Float.active && !isnan(prhs->N.nan_value)) {
 			for (m = startRow, mm = 0; m < endRow ; m++, mm++) {
 				nn = layer_offset + (pad_w[piece]+m)*nXSize_withPad + startColPos;
@@ -1413,12 +1463,12 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 
 	gmt_M_toc (GMT, "gmt_gdalread: After gdalread data reading");
 
-	populate_metadata (GMT, Ctrl, gdal_filename, got_R, nXSize[0]+nXSize[1], nYSize, dfULX, dfULY, dfLRX, dfLRY, z_min, z_max, first_layer);
+	gmtgdalread_populate_metadata (GMT, Ctrl, gdal_filename, got_R, nXSize[0]+nXSize[1], nYSize, dfULX, dfULY, dfLRX, dfLRY, z_min, z_max, first_layer);
 
 	gmtlib_GDALDestroyDriverManager(GMT->parent);
 
 	/* Return registration based on data type of the actually read first band.
-	   We do this at the end because 'populate_metadata' scans all bands in file
+	   We do this at the end because 'gmtgdalread_populate_metadata' scans all bands in file
 	   and cannot know which one was actually read. */
 	if (!pixel_reg) {		/* Grid registration */
 		Ctrl->hdr[0] += Ctrl->hdr[7] / 2;	Ctrl->hdr[1] -= Ctrl->hdr[7] / 2;
@@ -1429,4 +1479,3 @@ int gmt_gdalread (struct GMT_CTRL *GMT, char *gdal_filename, struct GMT_GDALREAD
 
 	return (GMT_NOERROR);
 }
-

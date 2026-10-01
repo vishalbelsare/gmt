@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -80,7 +80,9 @@ extern "C" {
 #       define vImage_CVUtilities_h
 #   endif
 #endif
-
+#if WIN32
+#   define QSORT_R_THUNK_FIRST
+#endif
 /* Avoid some annoying warnings from MS Visual Studio */
 #ifdef _MSC_VER
 #	pragma warning( disable : 4091 )	/* 'static ': ignored on left of 'XXX' when no variable is declared */
@@ -129,13 +131,13 @@ extern "C" {
 #include "gmt_common_math.h" /* Shared math functions */
 #include "gmt.h"             /* All GMT high-level API */
 #include "gmt_private.h"     /* API declaration needed by libraries */
+#include "gmt_constants.h"   /* All basic constant definitions */
 #include "gmt_hidden.h"      /* Hidden bookkeeping structure for API containers */
 
 struct GMT_CTRL; /* forward declaration of GMT_CTRL */
 
 #include "gmt_notposix.h"       /* Non-POSIX extensions */
 
-#include "gmt_constants.h"      /* All basic constant definitions */
 #include "gmt_modern.h"         /* Modern mode constant definitions */
 #include "gmt_macros.h"         /* All basic macros definitions */
 #include "gmt_dimensions.h"     /* Constant definitions created by configure */
@@ -145,15 +147,14 @@ struct GMT_CTRL; /* forward declaration of GMT_CTRL */
 #include "gmt_psl.h"            /* Declarations of structure for GMT PostScript settings */
 #include "gmt_hash.h"           /* Declarations of structure for GMT hashing */
 
-#ifdef HAVE_GDAL
-#	include "gmt_gdalread.h"      /* GDAL support */
-#endif
+#include "gmt_gdalread.h"      /* GDAL support */
 
 #include "gmt_common.h"         /* For holding the GMT common option settings */
 #include "gmt_fft.h"            /* Structures and enums used by programs needing FFTs */
 #include "gmt_nan.h"            /* Machine-dependent macros for making and testing NaNs */
 #include "gmt_error.h"          /* Only contains error codes */
 #include "gmt_synopsis.h"       /* Only contains macros for synopsis lines */
+#include "gmt_glib.h"           /* Make the GMT_xg_OPT define visible, even if HAVE_GLIB_GTHREAD is not defined */
 #include "gmt_version.h"        /* Only contains the current GMT version number */
 #include "gmt_project.h"        /* Define GMT->current.proj and GMT->current.map.frame structures */
 #include "gmt_grd.h"            /* Define grd file header structure */
@@ -183,9 +184,23 @@ struct GMT_CTRL; /* forward declaration of GMT_CTRL */
 
 #include "gmt_mb.h"		/* GMT redefines for MB-system compatibility */
 
-/* If GLIBC compatible qsort_r is not available */
-#ifndef HAVE_QSORT_R_GLIBC
-#	include "compat/qsort.h"
+/* qsort_r is a mess: https://stackoverflow.com/questions/39560773/different-declarations-of-qsort-r-on-mac-and-linux */
+
+#if defined (__APPLE__)
+    /* Do thunk first via qsort_r */
+	#define QSORT_R_THUNK_FIRST
+	#define QSORT_R(base, nel, width, compar, thunk) qsort_r(base, nel, width, thunk, compar);
+#elif defined (WIN32)
+    /* Do thunk last via qsort_s */
+	#define QSORT_R(base, nel, width, compar, thunk) qsort_s(base, nel, width, compar, thunk);
+#elif defined (HAVE_QSORT_R_GLIBC)
+    /* Use thunk last GNU order with qsort_r */
+	#define QSORT_R(base, nel, width, compar, thunk) qsort_r(base, nel, width, compar, thunk);
+#else
+    /* Use thunk last via Florian's code */
+	#include "compat/qsort.h"
+	#define GMT_USE_COMPAT_QSORT
+	#define QSORT_R(base, nel, width, compar, thunk) qsort_r(base, nel, width, compar, thunk);
 #endif
 
 #ifdef __cplusplus

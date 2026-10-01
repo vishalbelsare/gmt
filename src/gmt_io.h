@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -110,7 +110,8 @@ enum gmt_col_enum {
 	GMT_IS_AZIMUTH		=  512,	/* An angle to be converted via map projection to angle on map  */
 	GMT_IS_ANGLE		= 1024,	/* An angle to be used as is  */
 	GMT_IS_STRING		= 2048,	/* An text argument [internally used, not via -f]  */
-	GMT_IS_UNKNOWN		= 4096};	/* Input type is not knowable without -f */
+	GMT_IS_FIRSTCOLSTR	= 4096,	/* An text first column followed by numerics [set via -f]  */
+	GMT_IS_UNKNOWN		= 8192};/* Input type is not knowable without -f */
 
 /*! Various ways to report longitudes */
 enum GMT_lon_enum {
@@ -194,16 +195,17 @@ struct GMT_DATE_IO {
 };
 
 struct GMT_GEO_IO {			/* For geographic output and plotting */
-	double f_sec_to_int;		/* Scale to convert 0.xxx seconds to integer xxx (used for formatting) */
+	double f_sec_to_int;	/* Scale to convert 0.xxx seconds to integer xxx (used for formatting) */
 	unsigned int n_sec_decimals;	/* Number of digits in decimal seconds (0 for whole seconds) */
 	unsigned int range;		/* 0 for 0/360, 1 for -360/0, 2 for -180/+180 */
-	unsigned int wesn;		/* 1 if we want sign encoded with suffix W, E, S, N, 2 if also want space before letter */
+	int wesn;				/* 1 if we want sign encoded with suffix W, E, S, N, 2 if also want space before letter.
+							   If negative -1 or -2 we place the suffix before the annotation and -2 with a space after. */
 	int order[3];			/* The relative order of degree, minute, seconds in form (-ve if unused) */
 	bool decimal;			/* true if we want to use the FORMAT_FLOAT_OUT for decimal degrees only */
 	bool no_sign;			/* true if we want absolute values (plot only) */
-	char x_format[GMT_LEN64];	/* Actual C format used to plot/output longitude */
-	char y_format[GMT_LEN64];	/* Actual C format used to plot/output latitude */
-	char delimiter[2][2];		/* Delimiter strings in date, e.g. "-" */
+	bool leading_zeros;		/* True to get leading zeros in degrees */
+	char format[GMT_LEN64];	/* Actual C format used to output coordinate */
+	char delimiter[2][2];	/* Delimiter strings in date, e.g. "-" */
 };
 
 struct GMT_COL_INFO {	/* Used by -i and input parsing */
@@ -288,9 +290,7 @@ struct GMT_IO {				/* Used to process input data records */
 	char curr_trailing_text[GMT_BUFSIZ];	/* Current text portion of current record (or NULL) */
 	char segment_header[GMT_BUFSIZ];	/* Current ASCII segment header */
 	char filename[2][PATH_MAX];	/* Current filenames (or <stdin>/<stdout>) */
-#ifdef HAVE_GDAL
 	char tempfile[PATH_MAX];	/* Temporary file used to read - should be removed when closed */
-#endif
 	char col_set[2][GMT_MAX_COLUMNS];	/* Keeps track of which columns have had their type set */
 	char *o_format[GMT_MAX_COLUMNS];	/* Custom output ASCII format to overrule format_float_out */
 	int ncid;			/* NetCDF file ID (when opening netCDF file) */

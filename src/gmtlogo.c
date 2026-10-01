@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -23,6 +23,7 @@
  */
 
 #include "gmt_dev.h"
+#include "longopt/gmtlogo_inc.h"
 
 #define THIS_MODULE_CLASSIC_NAME	"gmtlogo"
 #define THIS_MODULE_MODERN_NAME	"gmtlogo"
@@ -32,9 +33,13 @@
 #define THIS_MODULE_NEEDS	"jr"
 #define THIS_MODULE_OPTIONS "->KJOPRUVXYtxy" GMT_OPT("c")
 
-#define GMT_N_LETTERS	116
-static float gmt_letters[GMT_N_LETTERS][2] = {	/* The G, M, T polygons */
-	{ NAN, NAN },
+
+#define GMT_N_LETTERS_G 92
+#define GMT_N_LETTERS_M 13
+#define GMT_N_LETTERS_T 8
+#define GMT_N_LETTERS (GMT_N_LETTERS_G + GMT_N_LETTERS_M + GMT_N_LETTERS_T + 3)
+
+static float gmt_letters_g[GMT_N_LETTERS_G][2] = {	/* The G polygons */
 	{ -59.5, -41.8 },
 	{ -59.5, 2.2 },
 	{ -105, 2.2 },
@@ -127,7 +132,8 @@ static float gmt_letters[GMT_N_LETTERS][2] = {	/* The G, M, T polygons */
 	{ -72.7, -32 },
 	{ -71.96, -30.8 },
 	{ -68.04, -41.8 },
-	{ NAN, NAN },
+};
+static float gmt_letters_m[GMT_N_LETTERS_M][2] = {	/* The M polygons */
 	{ -37.8, -41.8 },
 	{ -23.8, -41.8 },
 	{ -23.8, 27.39 },
@@ -141,7 +147,8 @@ static float gmt_letters[GMT_N_LETTERS][2] = {	/* The G, M, T polygons */
 	{ 12.46, -29.7 },
 	{ -17.22, 40.48 },
 	{ -37.8, 40.48 },
-	{ NAN, NAN },
+};
+static float gmt_letters_t[GMT_N_LETTERS_T][2] = {	/* The T polygons */
 	{ 124.46, -41.8 },
 	{ 124.46, 30.47 },
 	{ 160.02, 30.47 },
@@ -171,11 +178,12 @@ enum gmtlogo_label {
 /* Control structure for gmtlogo */
 
 struct GMTLOGO_CTRL {
-	struct GMTLOGO_D {	/* -D[g|j|n|x]<refpoint>+w<width>[+j<justify>][+o<dx>[/<dy>]] */
+	struct GMTLOGO_D {	/* -D[g|j|n|x]<refpoint>[+h<height>|+w<width>][+j<justify>][+o<dx>[/<dy>]] */
 		bool active;
 		struct GMT_REFPOINT *refpoint;
 		double off[2];
 		double width;
+		double height;
 		int justify;
 	} D;
 	struct GMTLOGO_F {	/* -F[+c<clearance>][+g<fill>][+i[<off>/][<pen>]][+p[<pen>]][+r[<radius>]][+s[<dx>/<dy>/][<shade>]][+d] */
@@ -207,7 +215,7 @@ static int usage (struct GMTAPI_CTRL *API, int level) {
 
 	const char *name = gmt_show_name_and_purpose (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_PURPOSE);
 	if (level == GMT_MODULE_PURPOSE) return (GMT_NOERROR);
-	GMT_Usage (API, 0, "usage: %s [-D%s[+w<width>]%s] [-F%s] [%s] "
+	GMT_Usage (API, 0, "usage: %s [-D%s[+h<height>|+w<width>]%s] [-F%s] [%s] "
 		"%s%s%s[%s] [-S[l|n|u]] [%s] [%s] [%s] [%s] %s[%s] [%s]\n",
 		name, GMT_XYANCHOR, GMT_OFFSET, GMT_PANEL, GMT_J_OPT, API->K_OPT, API->O_OPT,
 		API->P_OPT, GMT_Rgeoz_OPT, GMT_U_OPT, GMT_V_OPT, GMT_X_OPT, GMT_Y_OPT, API->c_OPT, GMT_t_OPT, GMT_PAR_OPT);
@@ -215,9 +223,10 @@ static int usage (struct GMTAPI_CTRL *API, int level) {
 	if (level == GMT_SYNOPSIS) return (GMT_MODULE_SYNOPSIS);
 
 	GMT_Message (API, GMT_TIME_NONE, "  OPTIONAL ARGUMENTS:\n");
-	gmt_refpoint_syntax (API->GMT, "\n-D", "Specify position of the GMT logo [0/0].", GMT_ANCHOR_LOGO, 1);
+	gmt_refpoint_syntax (API->GMT, "\n-D", "Specify position of the GMT logo [0/0].", GMT_ANCHOR_LOGO, 5);
 	gmt_refpoint_syntax (API->GMT, "D", NULL, GMT_ANCHOR_LOGO, 2);
-	GMT_Usage (API, 3, "+w Set the <width> of the GMT logo. [144p]");
+	GMT_Usage (API, 3, "+h Set the <height> of the GMT logo [72p], or");
+	GMT_Usage (API, 3, "+w Set the <width> of the GMT logo [144p]");
 	gmt_mappanel_syntax (API->GMT, 'F', "Specify a rectangular panel behind the GMT logo.", 0);
 	GMT_Option (API, "J-Z,K,O,P,R");
 	GMT_Usage (API, 1, "\n-S[l|n|u]");
@@ -252,11 +261,10 @@ static int parse (struct GMT_CTRL *GMT, struct GMTLOGO_CTRL *Ctrl, struct GMT_OP
 
 			case 'D':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->D.active);
-				Ctrl->D.active = true;
 				if ((Ctrl->D.refpoint = gmt_get_refpoint (GMT, opt->arg, 'D')) == NULL)
 					n_errors++;	/* Failed basic parsing */
-				else {	/* args are [+w<width>][+j<justify>][+o<dx>[/<dy>]] */
-					if (gmt_validate_modifiers (GMT, Ctrl->D.refpoint->args, 'D', "jow", GMT_MSG_ERROR)) n_errors++;
+				else {	/* args are [+h<height>|w<width>][+j<justify>][+o<dx>[/<dy>]] */
+					if (gmt_validate_modifiers (GMT, Ctrl->D.refpoint->args, 'D', "hjow", GMT_MSG_ERROR)) n_errors++;
 					if (gmt_get_modifier (Ctrl->D.refpoint->args, 'j', string))
 						Ctrl->D.justify = gmt_just_decode (GMT, string, PSL_NO_DEF);
 					else	/* With -Dj or -DJ, set default to reference justify point, else BL */
@@ -264,13 +272,14 @@ static int parse (struct GMT_CTRL *GMT, struct GMTLOGO_CTRL *Ctrl, struct GMT_OP
 					if (gmt_get_modifier (Ctrl->D.refpoint->args, 'o', string)) {
 						if ((n = gmt_get_pair (GMT, string, GMT_PAIR_DIM_DUP, Ctrl->D.off)) < 0) n_errors++;
 					}
+					if (gmt_get_modifier (Ctrl->D.refpoint->args, 'h', string))	/* Get logo height */
+						Ctrl->D.height = gmt_M_to_inch (GMT, string);
 					if (gmt_get_modifier (Ctrl->D.refpoint->args, 'w', string))	/* Get logo width */
 						Ctrl->D.width = gmt_M_to_inch (GMT, string);
 				}
 				break;
 			case 'F':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->F.active);
-				Ctrl->F.active = true;
 				if (gmt_getpanel (GMT, opt->option, opt->arg, &(Ctrl->F.panel))) {
 					gmt_mappanel_syntax (GMT, 'F', "Specify a rectangular panel behind the logo.", 0);
 					n_errors++;
@@ -278,7 +287,6 @@ static int parse (struct GMT_CTRL *GMT, struct GMTLOGO_CTRL *Ctrl, struct GMT_OP
 				break;
 			case 'S':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->S.active);
-				Ctrl->S.active = true;
 				switch (opt->arg[0]) {
 					case 'l': Ctrl->S.mode = GMTLOGO_LABEL_NAME;	break;	/* Label */
 					case 'u': Ctrl->S.mode = GMTLOGO_LABEL_URL;		break;	/* url */
@@ -288,11 +296,11 @@ static int parse (struct GMT_CTRL *GMT, struct GMTLOGO_CTRL *Ctrl, struct GMT_OP
 				break;
 			case 'W':	/* Scale for the logo */
 				GMT_Report (API, GMT_MSG_COMPAT, "Option -W is deprecated; -D...+w%s was set instead, use this in the future.\n", opt->arg);
-				Ctrl->D.width = gmt_M_to_inch (GMT, opt->arg);
+				n_errors += gmt_get_required_double (GMT, opt->arg, opt->option, 0, &Ctrl->D.width);
 				break;
 
 			default:	/* Report bad options */
-				n_errors += gmt_default_error (GMT, opt->option);
+				n_errors += gmt_default_option_error (GMT, opt);
 				break;
 		}
 	}
@@ -303,7 +311,15 @@ static int parse (struct GMT_CTRL *GMT, struct GMTLOGO_CTRL *Ctrl, struct GMT_OP
 			Ctrl->D.width = gmt_M_to_inch (GMT, string);
 		Ctrl->D.active = true;
 	}
-	if (Ctrl->D.width == 0.0) Ctrl->D.width = 2.0;	/* Default width */
+	if (Ctrl->D.width == 0.0) {	/* Either size not set or got height instead */
+		if (Ctrl->D.height > 0.0) /* Got height, now compute width */
+			Ctrl->D.width = (Ctrl->S.mode == GMTLOGO_LABEL_NONE) ? Ctrl->D.height / (1.55 * 0.25) : 2.0 * Ctrl->D.height;
+		else	/* Default width */
+			Ctrl->D.width = 2.0;
+	}
+	else if (Ctrl->D.height > 0.0) {	/* Cannot specify both dimensions since aspect is fixed */
+		n_errors += gmt_M_check_condition (GMT, Ctrl->D.width > 0.0, "Option -D+w|+h modifiers: Cannot set both width and height since aspect is fixed!\n");
+	}
 	if (Ctrl->D.refpoint && Ctrl->D.refpoint->mode != GMT_REFPOINT_PLOT) {	/* Anything other than -Dx need -R -J; other cases don't */
 		static char *kind = GMT_REFPOINT_CODES;	/* The five types of refpoint specifications */
 		n_errors += gmt_M_check_condition (GMT, !GMT->common.R.active[RSET], "Option -D%c requires the -R option\n", kind[Ctrl->D.refpoint->mode]);
@@ -319,12 +335,13 @@ static int parse (struct GMT_CTRL *GMT, struct GMTLOGO_CTRL *Ctrl, struct GMT_OP
 
 EXTERN_MSC int GMT_gmtlogo (void *V_API, int mode, void *args) {
 	/* High-level function that implements the gmtlogo task */
-	int error, fmode;
+	int error, fmode, idx = 0;
 
 	uint64_t par[4] = {0, 0, 0, 0};
 
 	double wesn[4] = {0.0, 0.0, 0.0, 0.0};	/* Dimensions in inches */
 	double scale, y, dim[2];
+	float gmt_letters[GMT_N_LETTERS][2];
 
 	char cmd[GMT_LEN256] = {""}, pars[GMT_LEN128] = {""}, file[GMT_VF_LEN] = {""};
 
@@ -346,7 +363,7 @@ EXTERN_MSC int GMT_gmtlogo (void *V_API, int mode, void *args) {
 
 	/* Parse the command-line arguments; return if errors are encountered */
 
-	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, NULL, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
+	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, module_kw, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
 	if (GMT_Parse_Common (API, THIS_MODULE_OPTIONS, options)) Return (API->error);
 	Ctrl = New_Ctrl (GMT);	/* Allocate and initialize a new control structure */
 	if ((error = parse (GMT, Ctrl, options)) != 0) Return (error);
@@ -428,6 +445,22 @@ EXTERN_MSC int GMT_gmtlogo (void *V_API, int mode, void *args) {
 	GMT_Call_Module (API, "psclip", GMT_MODULE_CMD, cmd);
 
 	/* Plot the GMT letters as shadows, then full size, using GMT_psxy */
+
+	/* Copy the polygons into the gmt_letters array, with NAN records as segment separators */
+	gmt_letters[idx][0] = NAN;
+	gmt_letters[idx][1] = NAN;
+	idx += 1;
+	memcpy(gmt_letters + idx, gmt_letters_g, sizeof(gmt_letters_g));
+	idx += GMT_N_LETTERS_G;
+	gmt_letters[idx][0] = NAN;
+	gmt_letters[idx][1] = NAN;
+	idx += 1;
+	memcpy(gmt_letters + idx, gmt_letters_m, sizeof(gmt_letters_m));
+	idx += GMT_N_LETTERS_M;
+	gmt_letters[idx][0] = NAN;
+	gmt_letters[idx][1] = NAN;
+	idx += 1;
+	memcpy(gmt_letters + idx, gmt_letters_t, sizeof(gmt_letters_t));
 
 	/* Allocate a matrix container for holding the GMT-matrix coordinates */
 	par[0] = 2;	par[1] = GMT_N_LETTERS;

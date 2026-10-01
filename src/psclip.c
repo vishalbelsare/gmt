@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -26,6 +26,7 @@
  */
 
 #include "gmt_dev.h"
+#include "longopt/psclip_inc.h"
 
 #define THIS_MODULE_CLASSIC_NAME	"psclip"
 #define THIS_MODULE_MODERN_NAME	"clip"
@@ -36,7 +37,7 @@
 #define THIS_MODULE_OPTIONS "-:>BJKOPRUVXYbdefghipqtxy" GMT_OPT("EZMmc")
 
 struct PSCLIP_CTRL {
-	struct PSCLIP_A {	/* -A[m|y|p|x|r|t<step>] */
+	struct PSCLIP_A {	/* -A[x|y] */
 		bool active;
 		unsigned int mode;
 		double step;
@@ -78,7 +79,7 @@ static int usage (struct GMTAPI_CTRL *API, int level) {
 	if (level == GMT_MODULE_PURPOSE) return (GMT_NOERROR);
 	GMT_Usage (API, 0, "usage: %s -C[a|<n>] [-K] [-O]\n", name);
 	GMT_Usage (API, 1, "or\n");
-	GMT_Usage (API, 0, "usage: %s [<table>] %s %s [-A[m|p|r|t|x|y]] [%s] %s[-N] %s%s[-T] "
+	GMT_Usage (API, 0, "usage: %s [<table>] %s %s [-A[x|y]] [%s] %s[-N] %s%s[-T] "
 		"[%s] [%s] [-W[<pen>]] [%s] [%s] [%s] %s[%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s] [%s]\n",
 		name, GMT_J_OPT, GMT_Rgeoz_OPT, GMT_B_OPT, API->K_OPT, API->O_OPT, API->P_OPT, GMT_U_OPT, GMT_V_OPT,
 		GMT_X_OPT, GMT_Y_OPT, GMT_bi_OPT, API->c_OPT, GMT_di_OPT, GMT_e_OPT, GMT_f_OPT, GMT_g_OPT, GMT_h_OPT,
@@ -93,15 +94,15 @@ static int usage (struct GMTAPI_CTRL *API, int level) {
 		"Terminates all clipping; optionally append how many clip levels to restore [all].");
 	GMT_Option (API, "J-Z,R");
 	GMT_Message (API, GMT_TIME_NONE, "\n  OPTIONAL ARGUMENTS:\n");
-	GMT_Usage (API, 1, "\n-A[m|p|r|t|x|y]");
+	GMT_Usage (API, 1, "\n-A[x|y]");
 	GMT_Usage (API, -2, "Suppress drawing geographic line segments as great circle arcs, i.e., draw "
-		"straight lines instead.  Six optional directives instead convert paths to staircase curves:");
-	GMT_Usage (API, 3, "m: First follow meridians, then parallels when connecting geographic points.");
-	GMT_Usage (API, 3, "p: First follow parallels, then meridians when connecting geographic point.");
-	GMT_Usage (API, 3, "r: First follow radius, then theta for staircase curves for Polar projection.");
-	GMT_Usage (API, 3, "t: First follow theta, then radius for staircase curves for Polar projection.");
-	GMT_Usage (API, 3, "x: First follow x, then y for staircase curves for Cartesian projections.");
-	GMT_Usage (API, 3, "y: First follow y, then x for staircase curves for Cartesian projections.");
+		"straight lines instead. Two optional directives instead convert paths to staircase curves:");
+	GMT_Usage (API, 3, "x: First follow x, then y for staircase curves.");
+	GMT_Usage (API, 3, "y: First follow y, then x for staircase curves.");
+	GMT_Usage (API, -2, "Here, x and y have the following meanings: "
+		"For Cartesian projections, x and y are the X- and Y-axis; "
+		"For gragraphic projections, x and y are parallels and meridians; "
+		"For polar projections, x and y are theta and radius.");
 	GMT_Option (API, "B-,K");
 	GMT_Usage (API, 1, "\n-N Use the outside of the polygons and the map boundary as clip paths.");
 	GMT_Option (API, "O,P");
@@ -130,7 +131,7 @@ static int parse (struct GMT_CTRL *GMT, struct PSCLIP_CTRL *Ctrl, struct GMT_OPT
 		switch (opt->option) {
 
 			case '<':	/* Input files */
-				if (GMT_Get_FilePath (API, GMT_IS_DATASET, GMT_IN, GMT_FILE_REMOTE, &(opt->arg))) n_errors++;;
+				if (GMT_Get_FilePath (API, GMT_IS_DATASET, GMT_IN, GMT_FILE_REMOTE, &(opt->arg))) n_errors++;
 				n_files++;
 				break;
 
@@ -138,7 +139,6 @@ static int parse (struct GMT_CTRL *GMT, struct PSCLIP_CTRL *Ctrl, struct GMT_OPT
 
 			case 'A':	/* Turn off draw_arc mode */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->A.active);
-				Ctrl->A.active = true;
 				switch (opt->arg[0]) {
 					case 'm': case 'y': case 'r': Ctrl->A.mode = GMT_STAIRS_Y; break;
 					case 'p': case 'x': case 't': Ctrl->A.mode = GMT_STAIRS_X; break;
@@ -149,7 +149,6 @@ static int parse (struct GMT_CTRL *GMT, struct PSCLIP_CTRL *Ctrl, struct GMT_OPT
 				break;
 			case 'C':	/* Turn clipping off */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->C.active);
-				Ctrl->C.active = true;
 				Ctrl->C.n = PSL_ALL_CLIP;
 				switch (opt->arg[0]) {
 					case 'a': Ctrl->C.n = PSL_ALL_CLIP; break;
@@ -166,15 +165,14 @@ static int parse (struct GMT_CTRL *GMT, struct PSCLIP_CTRL *Ctrl, struct GMT_OPT
 				break;
 			case 'N':	/* Use the outside of the polygons as clip area */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->N.active);
-				Ctrl->N.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 			case 'T':	/* Select map clip */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->T.active);
-				Ctrl->T.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 			case 'W':		/* Set line attributes */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->W.active);
-				Ctrl->W.active = true;
 				if (gmt_getpen (GMT, opt->arg, &Ctrl->W.pen)) {
 					gmt_pen_syntax (GMT, 'W', NULL, "sets pen attributes [Default pen is %s]:", NULL, 11);
 					n_errors++;
@@ -182,7 +180,7 @@ static int parse (struct GMT_CTRL *GMT, struct PSCLIP_CTRL *Ctrl, struct GMT_OPT
 				break;
 
 			default:	/* Report bad options */
-				n_errors += gmt_default_error (GMT, opt->option);
+				n_errors += gmt_default_option_error (GMT, opt);
 				break;
 		}
 	}
@@ -254,7 +252,7 @@ EXTERN_MSC int GMT_psclip (void *V_API, int mode, void *args) {
 
 	/* Parse the command-line arguments; return if errors are encountered */
 
-	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, NULL, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
+	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, module_kw, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
 	if (GMT_Parse_Common (API, THIS_MODULE_OPTIONS, options)) Return (API->error);
 	Ctrl = New_Ctrl (GMT);	/* Allocate and initialize a new control structure */
 	if ((error = parse (GMT, Ctrl, options)) != 0) Return (error);

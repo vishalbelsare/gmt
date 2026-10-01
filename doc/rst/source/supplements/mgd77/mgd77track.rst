@@ -41,7 +41,7 @@ Description
 -----------
 
 **mgd77track** reads NCEI MGD77 cruises and plots one or more ship tracks
-on a map using the specified projection.
+on a map using the specified projection [*Wessel and Chandler*, 2007].
 
 Required Arguments
 ------------------
@@ -64,7 +64,7 @@ Optional Arguments
 .. _-A:
 
 **-A**\ [**c**][*size*][**+i**\ *spacing*]
-    Append **c** to annotate using the MGD77 cruise ID [Default uses the
+    Append **c** to annotate the track using the MGD77 cruise ID [Default uses the
     filename prefix]. Optional *size* is the font size in points. The
     leg annotation font is controlled by :term:`FONT_LABEL`. By default,
     each leg is annotated every time it enters the map region.
@@ -104,7 +104,7 @@ Optional Arguments
 
 .. _-I:
 
-**-I**\ **a\|c\|m\|t** 
+**-I**\ **a\|c\|m\|t**
     Ignore certain data file formats from consideration. Append
     **a\|c\|m\|t** to ignore MGD77 ASCII, MGD77+ netCDF, MGD77T ASCII, or plain table
     files, respectively. The option may be repeated to ignore more than
@@ -123,11 +123,11 @@ Optional Arguments
 
 **-Sa**\ *startdist*
     Do not plot data that are less than *startdist* meter along track
-    from port of departure. Append **k** for km, **m** for miles, or
+    from port of departure. Append **k** for km, **M** for miles, or
     **n** for nautical miles [Default is 0 meters].
 **-Sb**\ *stopdist*
     Do not plot data that are more than *stopdist* meter along track
-    from port of departure. Append **k** for km, **m** for miles, or
+    from port of departure. Append **k** for km, **M** for miles, or
     **n** for nautical miles [Default is end of track].
 
 .. _-T:
@@ -138,7 +138,7 @@ Optional Arguments
     the same day, and **d** for distance markers). For each of these you
     can specify the 5 comma-separated attributes *markersize*,
     *markercolor*, *markerfontsize*, *markerfont*, and
-    *markerfontcolor*. Repeat the **-T** option for each marker type.
+    *markerfontcolor*. Repeat the |-T| option for each marker type.
 
 .. |Add_-U| replace:: |Add_-U_links|
 .. include:: ../../explain_-U.rst_
@@ -154,7 +154,7 @@ Optional Arguments
 
 **-W**\ [*pen*]
     Append *pen* used for the trackline. [Defaults:
-    width = default, color = black, style = solid].
+    width = 0.25p, color = black, style = solid].
 
 .. |Add_-XY| replace:: |Add_-XY_links|
 .. include:: ../../explain_-XY.rst_
@@ -182,10 +182,10 @@ every 10 degrees, draw gridlines every 5 degrees, and mark the track
 every day and 1000 km, with ticks every 6 hours and 250 km, and create
 a PDF map, enter the following command:
 
-   ::
+::
 
-    gmt mgd77track 01010007 -R70W/20E/40S/20N -Jm0.1 -B10g5 -A10 \
-                   -La1da1000kf6hf250k -pdf map
+  gmt mgd77track @01010007 -R70W/20E/40S/20N -Jm0.1 -B10g5 -A10 \
+                 -La1da1000kf6hf250k -pdf map
 
 .. module_note_begins
 
@@ -193,7 +193,10 @@ References
 ----------
 
 The Marine Geophysical Data Exchange Format - MGD77, see
-`<http://www.ngdc.noaa.gov/mgg/dat/geodas/docs/mgd77.txt>`_
+`<http://www.ngdc.noaa.gov/mgg/dat/geodas/docs/mgd77.txt>`_.
+
+Wessel, P., and Chandler, M. T., 2007, The mgd77 supplement to the Generic Mapping Tools,
+*Comp. Geosci.*, **33**\ (1), 62-75, https://doi.org/10.1016/j.cageo.2006.05.006.
 
 .. module_note_ends
 

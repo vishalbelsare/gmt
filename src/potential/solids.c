@@ -110,7 +110,7 @@ int five_psoid(struct GMT_CTRL *GMT, struct GMTGRAVMAG3D_CTRL *Ctrl, int body_ty
 	bool first = true;
 	double a, b, c, z_c, x0, y0, z_top, z_bot;
 	double dfi, d_sli, ai0, ai1, bi0, bi1, zi0, zi1;
-	double d_tet, half_width_x, half_width_y, dx, dy, dz, rad_x, rad_y;
+	double d_tet, half_width_x, dx, dy, rad_x, rad_y;
 	struct GRAVMAG_XY *ellipse[2];
 	
 	i_tri = Ctrl->n_raw_triang;		/* Start over any previous raw triang collection */
@@ -143,7 +143,20 @@ int five_psoid(struct GMT_CTRL *GMT, struct GMTGRAVMAG3D_CTRL *Ctrl, int body_ty
 	a  = Ctrl->M.params[body_type][nb][0];		b   = Ctrl->M.params[body_type][nb][1];
 	c  = Ctrl->M.params[body_type][nb][2];		z_c = Ctrl->M.params[body_type][nb][3];
 	x0 = Ctrl->M.params[body_type][nb][4];		y0  = Ctrl->M.params[body_type][nb][5];
-	z_top = z_c + c;	z_bot = z_c;
+	if (body_type == SPHERE) {		/* This has less parameters so the above is wrong. */
+		b = c = a;	z_c = Ctrl->M.params[body_type][nb][1];
+		x0 = Ctrl->M.params[body_type][nb][2];		y0 = Ctrl->M.params[body_type][nb][3];
+	}
+	if (body_type == BELL) {
+		a = b;	b = c;	c = Ctrl->M.params[body_type][nb][0];
+	}
+
+	if (body_type == SPHERE || body_type == ELLIPSOID) {
+		z_top = z_c + c;	z_bot = z_c - c;
+	}
+	else {
+		z_top = z_c + c;	z_bot = z_c;
+	}
 
 	n_tri = (hemi) ? 2 * npts_circ * n_slices : 2 * (npts_circ * (n_slices*2 - 1));
 	ellipse[0] = (struct GRAVMAG_XY *) calloc((size_t) (npts_circ+1), sizeof(struct GRAVMAG_XY));
@@ -154,11 +167,10 @@ int five_psoid(struct GMT_CTRL *GMT, struct GMTGRAVMAG3D_CTRL *Ctrl, int body_ty
 
 	dfi = (TWO_PI / npts_circ);		d_tet = (M_PI_2 / n_slices);
 	d_sli = c / n_slices;
-	half_width_x = 0.5 * a;			half_width_y = 0.5 * b;
+	half_width_x = 0.5 * a;
 	dx = n_sigmas * a / n_slices;	dy = n_sigmas * b / n_slices; 
-	dz = c / n_slices;	/* repeated but ok */
 
-	for (j = 0; j < Ctrl->n_slices; j++) {
+	for (j = 0; j < n_slices; j++) {
 		j1 = j + 1;
 		if (cone || piram) {
 			ai0 = j * a / n_slices;		bi0 = j * b / n_slices;
@@ -180,6 +192,7 @@ int five_psoid(struct GMT_CTRL *GMT, struct GMTGRAVMAG3D_CTRL *Ctrl, int body_ty
 			ai1 = a*cos(M_PI_2-j1*d_tet);	bi1 = b*cos(M_PI_2-j1*d_tet);
 			zi1 = z_top - c * (1. - sqrt(1. - (ai1/a)*(ai1/a)));
 		}
+
 		for (i = 0; i < npts_circ; i++) { /* compute slice j */
 			ellipse[0][i].x = x0 + ai0 * cos (i*dfi);
 			ellipse[0][i].y = y0 + bi0 * sin (i*dfi);
@@ -211,6 +224,7 @@ int five_psoid(struct GMT_CTRL *GMT, struct GMTGRAVMAG3D_CTRL *Ctrl, int body_ty
 		}
 		first = false;
 	}
+
 	/* First half is ready. Now, either close it and return or construct the other half by simetry */
 	if (cone || piram || sino || hemi) { /* close the base and return */
 		if (sino && fabs ((zi1 - z_c) / z_c) > 0.01) { 
@@ -238,19 +252,21 @@ int five_psoid(struct GMT_CTRL *GMT, struct GMTGRAVMAG3D_CTRL *Ctrl, int body_ty
 		free((void *)ellipse[1]);
 		return (k);
 	}
+
 	n_tri = npts_circ * (n_slices*2 - 1);
-	for (j = n_tri-1, i = n_tri; j >= 0; j--, i++) {
-		Ctrl->raw_mesh[i+i_tri].t1[0] = Ctrl->raw_mesh[j+i_tri].t1[0];
-		Ctrl->raw_mesh[i+i_tri].t1[1] = Ctrl->raw_mesh[j+i_tri].t1[1];
-		Ctrl->raw_mesh[i+i_tri].t1[2] = z_c + (z_c - Ctrl->raw_mesh[j+i_tri].t1[2]);
+	z_c *= -1;			/* It was still positive up */
+	for (j = n_tri-1, i = n_tri; j >= 0; j--, i++) {		/* Have to use the sequence t3,t2,t1 here to keep the body ccw */
+		Ctrl->raw_mesh[i+i_tri].t3[0] = Ctrl->raw_mesh[j+i_tri].t1[0];
+		Ctrl->raw_mesh[i+i_tri].t3[1] = Ctrl->raw_mesh[j+i_tri].t1[1];
+		Ctrl->raw_mesh[i+i_tri].t3[2] = (z_c + (z_c - Ctrl->raw_mesh[j+i_tri].t1[2]));
 
 		Ctrl->raw_mesh[i+i_tri].t2[0] = Ctrl->raw_mesh[j+i_tri].t2[0];
 		Ctrl->raw_mesh[i+i_tri].t2[1] = Ctrl->raw_mesh[j+i_tri].t2[1];
-		Ctrl->raw_mesh[i+i_tri].t2[2] = z_c + (z_c - Ctrl->raw_mesh[j+i_tri].t2[2]);
+		Ctrl->raw_mesh[i+i_tri].t2[2] = (z_c + (z_c - Ctrl->raw_mesh[j+i_tri].t2[2]));
 
-		Ctrl->raw_mesh[i+i_tri].t3[0] = Ctrl->raw_mesh[j+i_tri].t3[0];
-		Ctrl->raw_mesh[i+i_tri].t3[1] = Ctrl->raw_mesh[j+i_tri].t3[1];
-		Ctrl->raw_mesh[i+i_tri].t3[2] = z_c + (z_c - Ctrl->raw_mesh[j+i_tri].t3[2]);
+		Ctrl->raw_mesh[i+i_tri].t1[0] = Ctrl->raw_mesh[j+i_tri].t3[0];
+		Ctrl->raw_mesh[i+i_tri].t1[1] = Ctrl->raw_mesh[j+i_tri].t3[1];
+		Ctrl->raw_mesh[i+i_tri].t1[2] = (z_c + (z_c - Ctrl->raw_mesh[j+i_tri].t3[2]));
 	}
 	free ((void *)ellipse[0]);
 	free ((void *)ellipse[1]);

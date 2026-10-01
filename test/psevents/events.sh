@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Test gmt psevents with some quakes
 
+
 ps=events.ps
 
 #gmt convert "https://earthquake.usgs.gov/fdsnws/event/1/query.csv?starttime=2018-01-01%2000:00:00&endtime=2018-12-31%2000:00:00&minmagnitude=5&orderby=time-asc" \

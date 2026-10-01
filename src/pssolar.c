@@ -1,6 +1,6 @@
 /*--------------------------------------------------------------------
  *
- *	Copyright (c) 1991-2021 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
+ *	Copyright (c) 1991-2026 by the GMT Team (https://www.generic-mapping-tools.org/team.html)
  *	See LICENSE.TXT file for copying and redistribution conditions.
  *
  *	This program is free software; you can redistribute it and/or modify
@@ -23,6 +23,7 @@
  */
 
 #include "gmt_dev.h"
+#include "longopt/pssolar_inc.h"
 
 #define THIS_MODULE_CLASSIC_NAME	"pssolar"
 #define THIS_MODULE_MODERN_NAME	"solar"
@@ -58,7 +59,7 @@ struct PSSOLAR_CTRL {
 	struct PSSOLAR_I {		/* -I info about solar stuff */
 		bool   active;
 		bool   position;
-		int    TZ;			/* Time Zone */
+		double TZ;			/* Time Zone */
 		double lon, lat;
 		struct GMT_GCAL calendar;
 	} I;
@@ -73,7 +74,7 @@ struct PSSOLAR_CTRL {
 		bool   night, civil, nautical, astronomical;
 		unsigned int n_terminators;
 		int    which;		/* 0 = night, ... 3 = astronomical */
-		int    TZ;			/* Time Zone */
+		double TZ;			/* Time Zone */
 		double radius[4];
 		struct GMT_GCAL calendar;
 	} T;
@@ -98,18 +99,24 @@ static void Free_Ctrl (struct GMT_CTRL *GMT, struct PSSOLAR_CTRL *C) {	/* Deallo
 	gmt_M_free (GMT, C);
 }
 
-GMT_LOCAL void pssolar_parse_date_tz(char *date_tz, char **date, int *TZ) {
-	unsigned int pos = 0;
+GMT_LOCAL unsigned int pssolar_parse_date_tz(struct GMT_CTRL *GMT, char *date_tz, char **date, double *TZ) {
+	unsigned int pos = 0, n_errors = 0;
 	char *p;
 
 	p = malloc(strlen(date_tz)+1);
 	while ((gmt_strtok (date_tz, "+", &pos, p))) {
 		switch (p[0]) {
 			case 'd': date[0] = strdup(&p[1]);	break;
-			case 'z': *TZ     = atoi(&p[1]);	break;
+			case 'z':	/* Time zone as [-]hh[:mm[:ss]] or decimal hours */
+				if (gmt_scanf_arg (GMT, &p[1], GMT_IS_GEO, false, TZ) == GMT_IS_NAN) {
+					GMT_Report (GMT->parent, GMT_MSG_ERROR, "Unable to parse time zone +z%s, expected [-]hh[:mm]\n", &p[1]);
+					n_errors++;
+				}
+				break;
 		}
 	}
 	free(p);
+	return (n_errors);
 }
 
 static int usage (struct GMTAPI_CTRL *API, int level) {
@@ -134,7 +141,7 @@ static int usage (struct GMTAPI_CTRL *API, int level) {
 		"Sunrise, Sunset, Noon and length of the day for that location.");
 	GMT_Usage (API, 3, "+d Append <date> in ISO format, e.g, +d2000-04-25, to compute sun parameters "
 		"for this date [today].");
-	GMT_Usage (API, 3, "+z Append time zone <TZ> if necessary.");
+	GMT_Usage (API, 3, "+z Append time zone <TZ> as [-]hh[:mm] offset from UTC, if necessary.");
 	GMT_Option (API, "J-,K");
 	GMT_Usage (API, 1, "\n-M Write terminator(s) as a multisegment ASCII (or binary, see -bo) polygons to standard output. No plotting occurs.");
 	GMT_Usage (API, 1, "\n-N Use the outside of the polygons and the map boundary as clip paths.");
@@ -148,7 +155,7 @@ static int usage (struct GMTAPI_CTRL *API, int level) {
 	GMT_Usage (API, -2, "Two optional modifiers are available:");
 	GMT_Usage (API, 3, "+d Append <date> in ISO format, e.g, +d2000-04-25, to compute terminators "
 		"for this date [today].");
-	GMT_Usage (API, 3, "+z Append time zone <TZ> if necessary.");
+	GMT_Usage (API, 3, "+z Append time zone <TZ> as [-]hh[:mm] offset from UTC, if necessary.");
 	GMT_Option (API, "U,V");
 	gmt_pen_syntax (API->GMT, 'W', NULL, "Specify outline pen attributes [Default is no outline].", NULL, 0);
 	GMT_Option (API, "X,b,c,o,p");
@@ -163,7 +170,7 @@ static int parse (struct GMT_CTRL *GMT, struct PSSOLAR_CTRL *Ctrl, struct GMT_OP
 	 * Any GMT common options will override values set previously by other commands.
 	 */
 
-	int    j, TZ = 0, n_files = 0, n_errors = 0;
+	int    j, n_files = 0, n_errors = 0;
 	char  *pch = NULL, *date = NULL;
 	double t;
 	struct GMT_OPTION *opt = NULL;
@@ -181,11 +188,10 @@ static int parse (struct GMT_CTRL *GMT, struct PSSOLAR_CTRL *Ctrl, struct GMT_OP
 
 			case 'C':		/* Format -I output as a vector. No text. */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->C.active);
-				Ctrl->C.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 			case 'G':		/* Set fill for symbols or polygon */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->G.active);
-				Ctrl->G.active = true;
 				if (opt->arg[0] == '\0' || (opt->arg[0] == 'c' && !opt->arg[1]))
 					Ctrl->G.clip = true;
 				else if (gmt_getfill (GMT, opt->arg, &Ctrl->G.fill)) {
@@ -195,7 +201,6 @@ static int parse (struct GMT_CTRL *GMT, struct PSSOLAR_CTRL *Ctrl, struct GMT_OP
 				break;
 			case 'I':		/* Infos -I[<lon>/<lat>][+d<date>][+z<TZ>] */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->I.active);
-				Ctrl->I.active = true;
 				if (opt->arg[0]) {	/* Also gave location */
 					Ctrl->I.position = true;
 					if (opt->arg[0] != '+') {		/* Then it must be a location */
@@ -203,8 +208,7 @@ static int parse (struct GMT_CTRL *GMT, struct PSSOLAR_CTRL *Ctrl, struct GMT_OP
 					                                     "Expected -I[<lon>/<lat>]\n");
 					}
 					if ((pch = strchr(opt->arg, '+')) != NULL) {	/* Have one or two extra options */
-						pssolar_parse_date_tz(pch, &date, &TZ);
-						Ctrl->I.TZ = TZ;
+						n_errors += pssolar_parse_date_tz(GMT, pch, &date, &Ctrl->I.TZ);
 						if (date) {
 							gmt_scanf_arg (GMT, date, GMT_IS_ABSTIME, false, &t);
 							gmt_gcal_from_dt (GMT, t, &Ctrl->I.calendar);	/* Convert t to a complete calendar structure */
@@ -215,19 +219,17 @@ static int parse (struct GMT_CTRL *GMT, struct PSSOLAR_CTRL *Ctrl, struct GMT_OP
 				break;
 			case 'M':
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->M.active);
-				Ctrl->M.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 			case 'N':	/* Use the outside of the polygon as clip area */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->N.active);
-				Ctrl->N.active = true;
+				n_errors += gmt_get_no_argument (GMT, opt->arg, opt->option, 0);
 				break;
 			case 'T':		/* -Tdcna[+d<date>][+z<TZ>] */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->T.active);
-				Ctrl->T.active = true;
 				gmt_M_memset (Ctrl->T.radius, 4, double);	/* Reset to nothing before parsing */
 				if ((pch = strchr (opt->arg, '+')) != NULL) {	/* Have one or two extra options */
-					pssolar_parse_date_tz (pch, &date, &TZ);
-					Ctrl->T.TZ = TZ;
+					n_errors += pssolar_parse_date_tz (GMT, pch, &date, &Ctrl->T.TZ);
 					if (date) {
 						gmt_scanf_arg (GMT, date, GMT_IS_ABSTIME, false, &t);
 						gmt_gcal_from_dt (GMT, t, &Ctrl->T.calendar);	/* Convert t to a complete calendar structure */
@@ -236,6 +238,8 @@ static int parse (struct GMT_CTRL *GMT, struct PSSOLAR_CTRL *Ctrl, struct GMT_OP
 					pch[0] = '\0';	/* Chop off date setting */
 				}
 				if (opt->arg[0]) {
+					n_errors += gmt_M_check_condition (GMT, strspn (opt->arg, "dcna") != strlen (opt->arg),
+					                                    "Option -T: Unrecognized argument - did you forget +d before the date?\n");
 					for (j = 0; j < (int)strlen(opt->arg); j++) {
 						if (opt->arg[j] == 'd')				/* Day-night terminator */
 							{Ctrl->T.night = true;          Ctrl->T.radius[0] = 90.833;}
@@ -254,7 +258,6 @@ static int parse (struct GMT_CTRL *GMT, struct PSSOLAR_CTRL *Ctrl, struct GMT_OP
 				break;
 			case 'W':		/* Pen */
 				n_errors += gmt_M_repeated_module_option (API, Ctrl->W.active);
-				Ctrl->W.active = true;
 				if (gmt_getpen (GMT, opt->arg, &Ctrl->W.pen)) {
 					gmt_pen_syntax (GMT, 'W', NULL, " ", NULL, 0);
 					n_errors++;
@@ -262,7 +265,7 @@ static int parse (struct GMT_CTRL *GMT, struct PSSOLAR_CTRL *Ctrl, struct GMT_OP
 				break;
 
 			default:		/* Report bad options */
-				n_errors += gmt_default_error (GMT, opt->option);
+				n_errors += gmt_default_option_error (GMT, opt);
 				break;
 		}
 	}
@@ -302,14 +305,14 @@ GMT_LOCAL int pssolar_params (struct PSSOLAR_CTRL *Ctrl, struct SUN_PARAMS *Sun)
 	/* http://www.esrl.noaa.gov/gmd/grad/solcalc/calcdetails.html */
 	/* Compute the day-night terminator and the civil, nautical and astronomical twilights
 	   as well as several other solar parameters such sunrise, sunset, Sun position, etc... */
-	int    TZ, year, month, day, hour, min;
+	int    year, month, day, hour, min;
 	struct tm *UTC;
 	time_t right_now = time (NULL);
 	double sec, JC, JD, UT, L, M, C, var_y, r, sz, theta, lambda, obliqCorr, meanObliqEclipt;
-	double EEO, HA_Sunrise, TrueSolarTime, SolarDec, radius;
+	double EEO, HA_Sunrise, TrueSolarTime, SolarDec, radius, TZ;
 
 	radius = Ctrl->T.radius[Ctrl->T.which];
-	TZ = (Ctrl->I.TZ != 0) ? Ctrl->I.TZ : ((Ctrl->T.TZ != 0) ? Ctrl->T.TZ : 0);
+	TZ = (Ctrl->I.TZ != 0.0) ? Ctrl->I.TZ : ((Ctrl->T.TZ != 0.0) ? Ctrl->T.TZ : 0.0);
 
 	/*  Date info may be in either of I or T options. If not, use current time. */
 	if (Ctrl->I.calendar.year != 0) {
@@ -432,7 +435,7 @@ EXTERN_MSC int GMT_pssolar (void *V_API, int mode, void *args) {
 
 	/* Parse the command-line arguments; return if errors are encountered */
 
-	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, NULL, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
+	if ((GMT = gmt_init_module (API, THIS_MODULE_LIB, THIS_MODULE_CLASSIC_NAME, THIS_MODULE_KEYS, THIS_MODULE_NEEDS, module_kw, &options, &GMT_cpy)) == NULL) bailout (API->error); /* Save current state */
 	if (GMT_Parse_Common (API, THIS_MODULE_OPTIONS, options)) Return (API->error);
 	Ctrl = New_Ctrl (GMT);	/* Allocate and initialize a new control structure */
 	if ((error = parse (GMT, Ctrl, options)) != 0) Return (error);

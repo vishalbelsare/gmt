@@ -4,9 +4,10 @@
 #
 # Purpose:      Illustrate subplot with loops
 # GMT modules:  makecpt, subplot, set, plot, grdimage, clip, coast
+# Unix progs:	rm
 #
 
-gmt begin ex53 png
+gmt begin ex53
 	gmt set PROJ_ELLIPSOID Sphere MAP_ANNOT_OBLIQUE lon_horizontal,lat_parallel,tick_normal FONT_TAG 10p
 	gmt makecpt -Cterra
 	data=$(gmt which -G @Top12Cities.txt)
@@ -21,4 +22,5 @@ gmt begin ex53 png
 			echo ${lon} ${lat} | gmt plot -Skcity/0.25c -Gred -W0.5p -B0
 		done < $data
 	gmt subplot end
+	rm -f Top12Cities.txt
 gmt end show
